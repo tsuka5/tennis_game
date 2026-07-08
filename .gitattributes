@@ -1,0 +1,2 @@
+# Normalize line endings in the repository (checkout follows core.autocrlf).
+* text=auto

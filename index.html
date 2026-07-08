@@ -6,67 +6,93 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
     />
-    <title>タッチ・スマッシュ</title>
-    <style>
-      html,
-      body {
-        margin: 0;
-        padding: 0;
-        width: 100%;
-        height: 100%;
-        background: #0b3d2e;
-        overflow: hidden;
-        /* prevent iOS double-tap zoom / text selection during play */
-        touch-action: none;
-        -webkit-user-select: none;
-        user-select: none;
-        -webkit-tap-highlight-color: transparent;
-        overscroll-behavior: none;
-        font-family: system-ui, sans-serif;
-      }
-      #app {
-        width: 100%;
-        height: 100%;
-      }
-      /* Orientation guidance overlay. iOS Safari cannot lock orientation
-         (screen.orientation.lock is unsupported), so we guide via CSS overlay.
-         See docs/specs/03-controls-ux.md 3.4 / 09-open-questions.md Q-9. */
-      #rotate-overlay {
-        position: fixed;
-        inset: 0;
-        display: none;
-        align-items: center;
-        justify-content: center;
-        flex-direction: column;
-        gap: 16px;
-        background: #0b3d2e;
-        color: #eafff5;
-        z-index: 9999;
-        text-align: center;
-        padding: 24px;
-      }
-      #rotate-overlay .icon {
-        font-size: 64px;
-        animation: rot 1.8s ease-in-out infinite;
-      }
-      @keyframes rot {
-        0%, 40% { transform: rotate(0deg); }
-        60%, 100% { transform: rotate(-90deg); }
-      }
-      /* Show the overlay only in portrait orientation. */
-      @media (orientation: portrait) {
-        #rotate-overlay {
-          display: flex;
-        }
-      }
-    </style>
+    <title>Touch Smash — P2P テニス</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🎾%3C/text%3E%3C/svg%3E"
+    />
   </head>
   <body>
     <div id="app"></div>
+
+    <!-- ===== メニュー ===== -->
+    <div id="menu" class="screen">
+      <div class="menu-card">
+        <h1 class="title">TOUCH<span class="accent">SMASH</span></h1>
+        <p class="subtitle">P2P オンライン対戦テニス</p>
+
+        <div id="menu-home">
+          <button id="btn-practice" class="btn big">🎾 ひとりで練習（AI対戦）</button>
+          <button id="btn-create" class="btn big primary">🏟 ルームを作る</button>
+          <button id="btn-join" class="btn big">🔑 ルームに参加</button>
+          <p class="hint-line">同じルームコードを共有した相手と P2P で対戦できます</p>
+        </div>
+
+        <div id="menu-host" hidden>
+          <p class="panel-label">ルームコード</p>
+          <div id="room-code" class="room-code">-----</div>
+          <p class="hint-line">このコードを相手に伝えてください。<br />相手が参加すると自動で試合が始まります。</p>
+          <div class="spinner"></div>
+          <button id="btn-host-back" class="btn">← 戻る</button>
+        </div>
+
+        <div id="menu-join" hidden>
+          <p class="panel-label">ルームコードを入力</p>
+          <input id="join-input" class="code-input" maxlength="5" placeholder="ABCDE" autocomplete="off" />
+          <p id="join-status" class="hint-line"></p>
+          <button id="btn-join-go" class="btn big primary">参加する</button>
+          <button id="btn-join-back" class="btn">← 戻る</button>
+        </div>
+      </div>
+      <p class="credit">Three.js + WebRTC (PeerJS)</p>
+    </div>
+
+    <!-- ===== ゲーム中 HUD ===== -->
+    <div id="hud" hidden>
+      <div id="scoreboard">
+        <div class="sb-row" id="sb-row-me">
+          <span class="sb-name" id="sb-name-me">あなた</span>
+          <span class="sb-games" id="sb-games-me">0</span>
+          <span class="sb-points" id="sb-points-me">0</span>
+        </div>
+        <div class="sb-row" id="sb-row-opp">
+          <span class="sb-name" id="sb-name-opp">あいて</span>
+          <span class="sb-games" id="sb-games-opp">0</span>
+          <span class="sb-points" id="sb-points-opp">0</span>
+        </div>
+      </div>
+
+      <div id="msg"></div>
+      <div id="serve-hint" hidden>ショットボタン（またはスペース）でサーブ</div>
+      <div id="kbd-hint">移動: WASD / 矢印キー　　ショット: スペース　　ロブ: X</div>
+
+      <!-- タッチ操作 -->
+      <div id="joy-zone"></div>
+      <div id="joy-base" hidden><div id="joy-knob"></div></div>
+      <div id="touch-buttons">
+        <button id="btnB" class="shot-btn lob">ロブ</button>
+        <button id="btnA" class="shot-btn drive">ショット</button>
+      </div>
+
+      <button id="btn-quit" title="メニューへ戻る">✕</button>
+
+      <!-- 試合終了 -->
+      <div id="result" hidden>
+        <div class="result-card">
+          <div id="result-title">WIN</div>
+          <div id="result-detail"></div>
+          <button id="btn-rematch" class="btn big primary">もう一度</button>
+          <button id="btn-result-menu" class="btn">メニューへ</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 縦画面ガイド -->
     <div id="rotate-overlay">
       <div class="icon">📱</div>
       <div>端末を横にしてください</div>
     </div>
+
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
