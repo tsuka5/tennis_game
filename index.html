@@ -22,18 +22,27 @@
         <p class="subtitle">P2P オンライン対戦テニス</p>
 
         <div id="menu-home">
+          <input id="name-input" class="name-input" maxlength="8" placeholder="なまえ（8文字まで）" autocomplete="off" />
           <button id="btn-practice" class="btn big">🎾 ひとりで練習（AI対戦）</button>
-          <button id="btn-create" class="btn big primary">🏟 ルームを作る</button>
+          <button id="btn-create" class="btn big primary">🏟 パーティールームを作る</button>
           <button id="btn-join" class="btn big">🔑 ルームに参加</button>
-          <p class="hint-line">同じルームコードを共有した相手と P2P で対戦できます</p>
+          <p class="hint-line">
+            みんなで集まって勝ち残り戦。対戦でポイントを貯めると<br />
+            罰ゲーム/ご褒美ルーレットの確率が変わります
+          </p>
+          <p id="menu-toast" class="hint-line" style="color: #ff9f9f"></p>
         </div>
 
-        <div id="menu-host" hidden>
-          <p class="panel-label">ルームコード</p>
-          <div id="room-code" class="room-code">-----</div>
-          <p class="hint-line">このコードを相手に伝えてください。<br />相手が参加すると自動で試合が始まります。</p>
-          <div class="spinner"></div>
-          <button id="btn-host-back" class="btn">← 戻る</button>
+        <div id="menu-group" hidden>
+          <p class="panel-label">ポイント共有グループ</p>
+          <select id="group-select" class="group-select"></select>
+          <input id="group-input" class="name-input" maxlength="12" placeholder="新しいグループ名" autocomplete="off" />
+          <p class="hint-line">
+            ポイントはグループごとに別々に貯まります。<br />
+            同じグループで集まれば、貯めたポイントがずっと引き継がれます。
+          </p>
+          <button id="btn-group-go" class="btn big primary">このグループでルーム作成</button>
+          <button id="btn-group-back" class="btn">← 戻る</button>
         </div>
 
         <div id="menu-join" hidden>
@@ -45,6 +54,49 @@
         </div>
       </div>
       <p class="credit">Three.js + WebRTC (PeerJS)</p>
+    </div>
+
+    <!-- ===== パーティーロビー ===== -->
+    <div id="lobby" class="screen" hidden>
+      <div class="menu-card lobby-card">
+        <p class="panel-label">ルームコード</p>
+        <div id="lobby-code" class="room-code">-----</div>
+        <p id="lobby-group" class="lobby-group"></p>
+        <p id="lobby-banner" class="lobby-banner"></p>
+        <table id="lobby-table">
+          <thead>
+            <tr><th></th><th>なまえ</th><th>ポイント</th><th>勝敗</th><th></th></tr>
+          </thead>
+          <tbody id="lobby-rows"></tbody>
+        </table>
+
+        <div id="lobby-host-controls" hidden>
+          <div class="lobby-row-controls">
+            <label for="games-select">先取ゲーム数</label>
+            <select id="games-select">
+              <option value="1">1（サクサク）</option>
+              <option value="2" selected>2</option>
+              <option value="4">4（じっくり）</option>
+            </select>
+          </div>
+          <button id="btn-start-match" class="btn big primary">🎾 次の試合を開始</button>
+          <div class="btn-pair">
+            <button id="btn-roulette-penalty" class="btn">💥 罰ゲームルーレット</button>
+            <button id="btn-roulette-reward" class="btn">🎁 ご褒美ルーレット</button>
+          </div>
+          <button id="btn-reset-pts" class="btn subtle">ポイントをリセット</button>
+        </div>
+        <p id="lobby-guest-hint" class="hint-line" hidden>ホストの操作を待っています…</p>
+        <button id="btn-lobby-leave" class="btn">退出する</button>
+      </div>
+    </div>
+
+    <!-- ===== ルーレット ===== -->
+    <div id="roulette" hidden>
+      <div id="roulette-title">ルーレット</div>
+      <canvas id="roulette-canvas"></canvas>
+      <div id="roulette-result"></div>
+      <button id="roulette-close" class="btn big primary" hidden>とじる</button>
     </div>
 
     <!-- ===== ゲーム中 HUD ===== -->
@@ -63,8 +115,11 @@
       </div>
 
       <div id="msg"></div>
+      <div id="spectating" hidden>👀 観戦中</div>
       <div id="serve-hint" hidden>ショットボタン（またはスペース）でサーブ</div>
-      <div id="kbd-hint">移動: WASD / 矢印キー　　ショット: スペース　　ロブ: X</div>
+      <div id="kbd-hint">
+        移動: WASD / 矢印　　ショット: スペース　　ロブ: X　　高い球は自動スマッシュ／前で打つほど深く飛ぶ
+      </div>
 
       <!-- タッチ操作 -->
       <div id="joy-zone"></div>

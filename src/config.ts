@@ -47,6 +47,8 @@ export const PLAY = {
   BOUND_Z_FAR: 16.0,
   /** スイングアニメーションの長さ (s) */
   SWING_TIME: 0.35,
+  /** この高さ以上のボールをショットするとスマッシュになる */
+  SMASH_MIN_Y: 1.35,
 } as const;
 
 export const NET_RATE = {
@@ -54,5 +56,5 @@ export const NET_RATE = {
   INTERVAL: 1 / 30,
 } as const;
 
-/** 先取ゲーム数（このゲーム数を取ったら勝ち） */
-export const GAMES_TO_WIN = 4;
+/** 練習モードの先取ゲーム数（パーティーではロビーで選択する） */
+export const PRACTICE_GAMES_TO_WIN = 4;

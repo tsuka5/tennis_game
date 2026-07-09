@@ -16,9 +16,10 @@ export class Hud {
   private readonly resultTitle = $('result-title');
   private readonly resultDetail = $('result-detail');
 
-  show(myName: string, oppName: string): void {
+  show(myName: string, oppName: string, spectating = false): void {
     $('sb-name-me').textContent = myName;
     $('sb-name-opp').textContent = oppName;
+    $('spectating').hidden = !spectating;
     this.root.hidden = false;
     this.result.hidden = true;
     this.msg.classList.remove('show');

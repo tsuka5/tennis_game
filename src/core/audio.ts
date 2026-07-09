@@ -58,6 +58,13 @@ class Sfx {
     this.tone(240, 0.09, 0.22, 'triangle');
   }
 
+  /** スマッシュ（強い打球音） */
+  smash(): void {
+    this.noise(0.1, 1100, 1, 0.5, 'highpass');
+    this.tone(150, 0.18, 0.28, 'sawtooth');
+    this.tone(300, 0.1, 0.18, 'triangle');
+  }
+
   /** バウンド音 */
   bounce(): void {
     this.tone(130, 0.09, 0.16, 'sine');

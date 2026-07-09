@@ -1,14 +1,13 @@
 /**
  * テニスのスコア進行（15/30/40/デュース/アドバンテージ、先取ゲーム制）。
  */
-import { GAMES_TO_WIN } from '../config';
 import type { Score } from '../net/protocol';
 
 export function newScore(server: 0 | 1): Score {
   return { points: [0, 0], games: [0, 0], server, finished: false, winner: null };
 }
 
-export function addPoint(sc: Score, w: 0 | 1): void {
+export function addPoint(sc: Score, w: 0 | 1, gamesToWin: number): void {
   if (sc.finished) return;
   sc.points[w]++;
   const [a, b] = sc.points;
@@ -18,7 +17,7 @@ export function addPoint(sc: Score, w: 0 | 1): void {
     sc.games[g]++;
     sc.points = [0, 0];
     sc.server = sc.server === 0 ? 1 : 0;
-    if (sc.games[g] >= GAMES_TO_WIN) {
+    if (sc.games[g] >= gamesToWin) {
       sc.finished = true;
       sc.winner = g;
     }

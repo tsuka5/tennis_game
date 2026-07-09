@@ -37,7 +37,7 @@ export class HostSim {
     { x: 0, z: COURT.HALF_L + 1, swing: 0 },
     { x: 0, z: -(COURT.HALF_L + 1), swing: 0 },
   ];
-  fx: FxCounters = { hit: 0, bounce: 0, net: 0, point: 0, fault: 0 };
+  fx: FxCounters = { hit: 0, smash: 0, bounce: 0, net: 0, point: 0, fault: 0 };
   msgSeq = 0;
   msgText = '';
   resetSeq = 0;
@@ -50,7 +50,10 @@ export class HostSim {
   private serveBoxXSign = 1;
   private timer = 1.2;
 
-  constructor(firstServer: 0 | 1) {
+  private readonly gamesToWin: number;
+
+  constructor(firstServer: 0 | 1, gamesToWin: number) {
+    this.gamesToWin = gamesToWin;
     this.score = newScore(firstServer);
     this.say('スタート！');
   }
@@ -147,33 +150,41 @@ export class HostSim {
   private doHit(i: 0 | 1, cmd: SwingCmd): void {
     const s = sideOf(i);
     const b = this.ball.p;
+    const pl = this.players[i];
     const from = { x: b.x, y: Math.max(b.y, 0.45), z: b.z };
+
+    // 押したタイミング: ボールを体の前（ネット寄り）で捉えるほど 1、
+    // 引きつけて（遅らせて）打つほど 0。返球の深さと速さが変わる。
+    const frontDist = (pl.z - b.z) * s; // 前方なら正
+    const front = clamp((frontDist + PLAY.REACH) / (2 * PLAY.REACH), 0, 1);
 
     let t: number;
     let depth: number;
     let margin: number;
-    const smash = cmd.kind === 'drive' && b.y > 1.65;
+    const smash = cmd.kind === 'drive' && b.y > PLAY.SMASH_MIN_Y;
     if (cmd.kind === 'lob') {
       t = 1.55;
-      depth = 0.85;
+      depth = 0.6 + 0.3 * front;
       margin = 1.7;
     } else if (smash) {
-      t = 0.52;
-      depth = 0.62;
+      t = 0.58 - 0.12 * front; // 早いタイミングで叩くほど鋭い
+      depth = 0.5 + 0.4 * front;
       margin = 0.05;
+      this.fx.smash++;
+      this.say('スマッシュ！');
     } else {
-      t = 0.82;
-      depth = 0.78;
+      t = 0.95 - 0.2 * front; // 前で捉えるほど速く
+      depth = 0.45 + 0.5 * front; // 前で捉えるほど深く、引きつけるとドロップ気味
       margin = 0.28;
     }
 
-    const err = (Math.random() * 2 - 1) * 0.45;
+    const err = (Math.random() * 2 - 1) * 0.4;
     const tx = clamp(
       cmd.aim * s * (COURT.HALF_SW - 0.6) + err,
       -(COURT.HALF_SW - 0.35),
       COURT.HALF_SW - 0.35,
     );
-    const tz = -s * clamp(COURT.HALF_L * depth + (Math.random() * 2 - 1) * 0.9, 3.0, COURT.HALF_L - 0.4);
+    const tz = -s * clamp(COURT.HALF_L * depth + (Math.random() * 2 - 1) * 0.5, 2.2, COURT.HALF_L - 0.4);
     const v = shotWithClearance(from, tx, tz, t, margin);
     this.ball.set(from, v);
     this.serving = false;
@@ -301,7 +312,7 @@ export class HostSim {
     this.ball.active = false;
     this.serveNum = 1;
     const gamesBefore = this.score.games[0] + this.score.games[1];
-    addPoint(this.score, w);
+    addPoint(this.score, w, this.gamesToWin);
     this.fx.point++;
     const gamesAfter = this.score.games[0] + this.score.games[1];
     // ポイントコールはスコアボード側で見せる。ここでは理由＋ゲーム獲得のみ。
