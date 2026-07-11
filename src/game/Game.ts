@@ -10,13 +10,15 @@
 import * as THREE from 'three';
 import { COURT, NET_RATE, PLAY, PRACTICE_GAMES_TO_WIN } from '../config';
 import { sfx } from '../core/audio';
-import type { ClientMsg, FxCounters, Phase, Score, ShotKind, Snapshot } from '../net/protocol';
+import type { ClientMsg, FxCounters, Phase, Score, Snapshot, SpecialSpec } from '../net/protocol';
 import { HostSim, planShot, serveStand } from '../sim/HostSim';
 import type { ServeAim } from '../sim/HostSim';
 import { simulateLanding } from '../sim/physics';
+import { DEFAULT_SPECIAL } from '../sim/special';
 import { AiController } from '../sim/ai';
 import { BallSim } from '../sim/physics';
 import { Controls } from '../ui/controls';
+import type { SwipeShot } from '../ui/controls';
 import { Hud } from '../ui/hud';
 import { BallView } from '../view/BallView';
 import { KIT_AWAY, KIT_HOME, PlayerView } from '../view/PlayerView';
@@ -38,6 +40,8 @@ export interface GameOpts {
   gamesToWin: number;
   /** 練習モード（AI 対戦・リザルトと再戦 UI を出す） */
   practice: boolean;
+  /** 対戦者の自作必殺技（authority のみ使用。省略時はデフォルト技） */
+  specials?: [SpecialSpec, SpecialSpec];
   net: GameNet | null;
   /** authority のみ: 決着から少し置いて一度だけ呼ばれる */
   onMatchOver?: (winnerIdx: 0 | 1, score: Score) => void;
@@ -105,7 +109,7 @@ export class Game {
     if (this.playerIdx !== null) this.meZ = this.s * (COURT.HALF_L + 1);
 
     if (opts.authority) {
-      this.sim = new HostSim(Math.random() < 0.5 ? 0 : 1, opts.gamesToWin);
+      this.sim = new HostSim(Math.random() < 0.5 ? 0 : 1, opts.gamesToWin, opts.specials);
       if (opts.practice) this.ai = new AiController();
     }
 
@@ -147,7 +151,7 @@ export class Game {
     // 入力（対戦者のみ）
     if (this.playerIdx !== null) {
       this.controls = new Controls();
-      this.controls.onSwing = (kind) => this.swing(kind);
+      this.controls.onShot = (shot) => this.swing(shot);
     } else {
       this.controls = null;
     }
@@ -168,18 +172,17 @@ export class Game {
 
   // ============ 入力 ============
 
-  private swing(kind: ShotKind): void {
+  private swing(shot: SwipeShot): void {
     if (this.playerIdx === null) return;
     sfx.unlock();
     // ボールが自分の右側ならフォアハンド(+)、左側ならバックハンド(-)
     const ballX = this.sim ? this.sim.ball.p.x : this.localBall.p.x;
     this.mySwing = (ballX - this.meX) * this.s >= 0 ? 1 : -1;
-    const aim = this.controls?.state.x ?? 0;
+    // すぐ当たらないスワイプはホスト側でバッファされ、ボール到達時に発動する
     if (this.sim) {
-      if (!this.sim.trySwing(this.playerIdx, { kind, aim })) sfx.whoosh();
+      this.sim.trySwing(this.playerIdx, { kind: shot.kind, aim: shot.aim, power: shot.power });
     } else if (this.opts.net) {
-      this.opts.net.send({ t: 'swing', kind, aim });
-      sfx.whoosh();
+      this.opts.net.send({ t: 'swing', kind: shot.kind, aim: shot.aim, pw: shot.power });
     }
   }
 
@@ -193,7 +196,7 @@ export class Game {
       this.sim.players[idx].z = m.p[1];
       this.sim.players[idx].swing = m.sw;
     } else if (m.t === 'swing') {
-      this.sim.trySwing(idx, { kind: m.kind, aim: m.aim });
+      this.sim.trySwing(idx, { kind: m.kind, aim: m.aim, power: m.pw });
     }
   }
 
@@ -271,11 +274,14 @@ export class Game {
     }
     this.landView.update(dt, this.landTarget ? { ...this.landTarget, power: 0 } : null);
 
-    // 返球プレビュー（ボールが自分側へ来ている間、狙い入力に追従）
+    // 返球プレビュー（ボールが自分側へ来ている間、スワイプ/キー入力に追従）
     let preview: ServeAim | null = null;
     if (flying && this.playerIdx !== null && this.controls) {
       const incoming = Math.sign(ball.p.z) === this.s || ball.v.z * this.s > 0;
       if (incoming) {
+        const live = this.controls.live;
+        const aimIn = live.active ? live.aim : this.controls.keyAim;
+        const powIn = live.active ? live.power : 0.7;
         const oppX = this.sim
           ? this.sim.players[(1 - this.playerIdx) as 0 | 1].x
           : (this.playerIdx === 0 ? this.p1Target : this.p0Target)[0];
@@ -283,7 +289,7 @@ export class Game {
           ball.p,
           { x: this.meX, z: this.meZ },
           this.s,
-          { kind: 'drive', aim: this.controls.state.x },
+          { kind: 'drive', aim: aimIn, power: powIn },
           oppX,
         );
         preview = { x: plan.tx, z: plan.tz, power: 0 };
@@ -292,23 +298,38 @@ export class Game {
     this.returnAimView.update(dt, preview);
   }
 
+  /** Tennis Clash 式の自動移動: 着地予測へ走り、それ以外はセンターへ戻る */
   private moveSelf(dt: number): void {
     if (this.playerIdx === null || !this.controls) return;
-    const inp = this.controls.state;
-    // 自分視点 → ワールド座標（右 = x * s, 前 = -z * s）
-    this.meX += inp.x * this.s * PLAY.SPEED * dt;
-    this.meZ += -inp.y * this.s * PLAY.SPEED * dt;
-    this.meX = clamp(this.meX, -PLAY.BOUND_X, PLAY.BOUND_X);
-    if (this.s > 0) this.meZ = clamp(this.meZ, PLAY.BOUND_Z_NEAR, PLAY.BOUND_Z_FAR);
-    else this.meZ = clamp(this.meZ, -PLAY.BOUND_Z_FAR, -PLAY.BOUND_Z_NEAR);
-
-    // サーブ待ちの間、サーバーはベースライン上（正しい半面側）しか動けない
     const ph = this.sim ? this.sim.phase : this.clientPhase;
     const sc = this.sim ? this.sim.score : this.lastScore;
-    if (ph === 'await-serve' && sc && sc.server === this.playerIdx) {
-      const stand = serveStand(this.playerIdx, sc.points);
-      this.meX = clamp(this.meX, stand.x0, stand.x1);
-      this.meZ = stand.z;
+
+    // サーブ待ちは配置固定（サーバーはベースライン上に拘束）
+    if (ph === 'await-serve') {
+      if (sc && sc.server === this.playerIdx) {
+        const stand = serveStand(this.playerIdx, sc.points);
+        this.meX = clamp(this.meX, stand.x0, stand.x1);
+        this.meZ = stand.z;
+      }
+      return;
+    }
+    if (ph !== 'rally') return;
+
+    const homeZ = this.s * (COURT.HALF_L - 0.4);
+    let tx = 0;
+    let tz = homeZ;
+    if (this.landTarget && Math.sign(this.landTarget.z) === this.s) {
+      // 自陣に落ちるボールへ: 落下点の少し後ろに構える
+      tx = clamp(this.landTarget.x, -PLAY.BOUND_X, PLAY.BOUND_X);
+      tz = this.s * clamp(Math.abs(this.landTarget.z) + 0.9, PLAY.BOUND_Z_NEAR, PLAY.BOUND_Z_FAR);
+    }
+    const dx = tx - this.meX;
+    const dz = tz - this.meZ;
+    const d = Math.hypot(dx, dz);
+    if (d > 0.05) {
+      const step = Math.min(d, PLAY.SPEED * dt);
+      this.meX += (dx / d) * step;
+      this.meZ += (dz / d) * step;
     }
   }
 
@@ -521,13 +542,14 @@ export class Game {
   }
 }
 
-export function practiceGame(): Game {
+export function practiceGame(mySpecial?: SpecialSpec): Game {
   return new Game({
     authority: true,
     playerIdx: 0,
     names: ['あなた', 'AI'],
     gamesToWin: PRACTICE_GAMES_TO_WIN,
     practice: true,
+    specials: mySpecial ? [mySpecial, DEFAULT_SPECIAL] : undefined,
     net: null,
   });
 }

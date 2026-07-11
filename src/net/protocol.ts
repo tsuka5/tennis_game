@@ -6,6 +6,20 @@
 
 export type ShotKind = 'drive' | 'lob' | 'special';
 
+/**
+ * 自作必殺技（パーツの組み合わせ）。タイプ + 6ポイントを
+ * 速さ/深さ/角度に配分。値はホスト側で必ずサニタイズする。
+ */
+export interface SpecialSpec {
+  /** 発動時に表示される技名（最大10文字） */
+  name: string;
+  type: 'speed' | 'drop' | 'moon';
+  /** 各 0..4、合計 6 まで */
+  spd: number;
+  dep: number;
+  ang: number;
+}
+
 export type Phase = 'await-serve' | 'rally' | 'between' | 'over';
 
 export interface Score {
@@ -78,9 +92,9 @@ export interface BettingState {
 
 /** クライアント → ホスト */
 export type ClientMsg =
-  | { t: 'hello'; name: string }
+  | { t: 'hello'; name: string; sp?: SpecialSpec }
   | { t: 'pos'; p: [number, number]; sw: number }
-  | { t: 'swing'; kind: ShotKind; aim: number }
+  | { t: 'swing'; kind: ShotKind; aim: number; pw?: number }
   | { t: 'bet'; amount: number }
   | { t: 'predict'; target: 0 | 1; amount: number };
 

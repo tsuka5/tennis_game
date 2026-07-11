@@ -74,7 +74,7 @@ export class AiController {
       if (this.reactTimer <= 0) {
         this.planned = false;
         const kind = this.special ? 'special' : this.lob ? 'lob' : 'drive';
-        sim.trySwing(AI_INDEX, { kind, aim: this.aim });
+        sim.trySwing(AI_INDEX, { kind, aim: this.aim, power: 0.45 + Math.random() * 0.5 });
       }
     } else {
       this.planned = false;

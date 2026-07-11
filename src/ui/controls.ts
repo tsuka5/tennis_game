@@ -1,28 +1,36 @@
 /**
- * 入力の統合: キーボード (WASD/矢印 + スペース/X) とタッチ
- * （左半分バーチャルジョイスティック + 右下ボタン）。
- * state は「自分視点」の移動ベクトル（x: 右+, y: ネット方向+）。
+ * Tennis Clash 式の入力: 移動は自動（Game 側）、打球は画面のどこでも
+ * スワイプ。スワイプの左右 = コース、長さ = 深さ・速さ、
+ * ゆっくり長いドラッグ = ロブ、タップ/短いスワイプ = 弱いショット。
+ * ⚡ボタン（タッチ）/ C キーで必殺。キーボードはスペース/Z/X も使える。
  */
 import type { ShotKind } from '../net/protocol';
 
-const JOY_RADIUS = 60;
-const JOY_DEADZONE = 8;
+/** これ未満の移動量(px)はタップ扱い */
+const TAP_PX = 24;
+/** これより遅いスワイプ(px/s)はロブ */
+const LOB_SPEED = 330;
+
+export interface SwipeShot {
+  kind: ShotKind;
+  /** 自分視点の左右 -1..1 */
+  aim: number;
+  /** 深さ・速さ 0..1 */
+  power: number;
+}
 
 export class Controls {
-  /** 自分視点の移動入力 (-1..1) */
-  state = { x: 0, y: 0 };
-  onSwing: (kind: ShotKind) => void = () => {};
+  onShot: (shot: SwipeShot) => void = () => {};
+  /** スワイプ中のライブ状態（返球プレビューマーカー用） */
+  live = { active: false, aim: 0, power: 0 };
+  /** A/D・←→ キーによる狙い（キーボード派のフォールバック） */
+  keyAim = 0;
 
-  private keys = new Set<string>();
-  private joyPointer: number | null = null;
-  private joyOrigin = { x: 0, y: 0 };
-  private joyVec = { x: 0, y: 0 };
+  private pointer: number | null = null;
+  private start = { x: 0, y: 0, t: 0 };
+  private readonly keys = new Set<string>();
 
-  private readonly joyZone = document.getElementById('joy-zone') as HTMLElement;
-  private readonly joyBase = document.getElementById('joy-base') as HTMLElement;
-  private readonly joyKnob = document.getElementById('joy-knob') as HTMLElement;
-  private readonly btnA = document.getElementById('btnA') as HTMLElement;
-  private readonly btnB = document.getElementById('btnB') as HTMLElement;
+  private readonly zone = document.getElementById('swipe-zone') as HTMLElement;
   private readonly btnC = document.getElementById('btnC') as HTMLElement;
 
   private readonly onKeyDown = (e: KeyboardEvent): void => {
@@ -33,126 +41,93 @@ export class Controls {
     this.keys.add(e.code);
     if (e.code === 'Space' || e.code === 'KeyZ') {
       e.preventDefault();
-      this.onSwing('drive');
+      this.onShot({ kind: 'drive', aim: this.keyAim, power: 0.7 });
     } else if (e.code === 'KeyX' || e.code === 'ShiftLeft') {
-      this.onSwing('lob');
+      this.onShot({ kind: 'lob', aim: this.keyAim, power: 0.7 });
     } else if (e.code === 'KeyC') {
-      this.onSwing('special');
+      this.onShot({ kind: 'special', aim: this.keyAim, power: 1 });
     }
-    this.updateKeyboard();
+    this.updateKeyAim();
   };
 
   private readonly onKeyUp = (e: KeyboardEvent): void => {
     this.keys.delete(e.code);
-    this.updateKeyboard();
+    this.updateKeyAim();
   };
 
-  private readonly onJoyDown = (e: PointerEvent): void => {
-    if (this.joyPointer !== null) return;
-    this.joyPointer = e.pointerId;
-    this.joyOrigin = { x: e.clientX, y: e.clientY };
-    this.joyVec = { x: 0, y: 0 };
-    this.joyBase.hidden = false;
-    this.joyBase.style.left = `${e.clientX}px`;
-    this.joyBase.style.top = `${e.clientY}px`;
-    this.setKnob(0, 0);
-    this.joyZone.setPointerCapture(e.pointerId);
-  };
+  private updateKeyAim(): void {
+    let x = 0;
+    if (this.keys.has('KeyA') || this.keys.has('ArrowLeft')) x -= 1;
+    if (this.keys.has('KeyD') || this.keys.has('ArrowRight')) x += 1;
+    this.keyAim = x;
+  }
 
-  private readonly onJoyMove = (e: PointerEvent): void => {
-    if (e.pointerId !== this.joyPointer) return;
-    let dx = e.clientX - this.joyOrigin.x;
-    let dy = e.clientY - this.joyOrigin.y;
+  /** スワイプベクトル → 狙いと強さ */
+  private metrics(dx: number, dy: number): { aim: number; power: number } {
+    const aim = Math.max(-1, Math.min(1, dx / (window.innerWidth * 0.22)));
     const len = Math.hypot(dx, dy);
-    if (len < JOY_DEADZONE) {
-      this.joyVec = { x: 0, y: 0 };
-      this.setKnob(dx, dy);
-      this.apply();
+    const power = Math.max(
+      0.15,
+      Math.min(1, len / (Math.min(window.innerWidth, window.innerHeight) * 0.42)),
+    );
+    return { aim, power };
+  }
+
+  private readonly onDown = (e: PointerEvent): void => {
+    if (this.pointer !== null) return;
+    this.pointer = e.pointerId;
+    this.start = { x: e.clientX, y: e.clientY, t: performance.now() };
+    this.live = { active: true, aim: 0, power: 0.15 };
+    this.zone.setPointerCapture(e.pointerId);
+  };
+
+  private readonly onMove = (e: PointerEvent): void => {
+    if (e.pointerId !== this.pointer) return;
+    const m = this.metrics(e.clientX - this.start.x, e.clientY - this.start.y);
+    this.live = { active: true, aim: m.aim, power: m.power };
+  };
+
+  private readonly onUp = (e: PointerEvent): void => {
+    if (e.pointerId !== this.pointer) return;
+    this.pointer = null;
+    this.live = { active: false, aim: 0, power: 0 };
+    const dx = e.clientX - this.start.x;
+    const dy = e.clientY - this.start.y;
+    const len = Math.hypot(dx, dy);
+    const dur = Math.max(0.03, (performance.now() - this.start.t) / 1000);
+    if (len < TAP_PX) {
+      // タップ = ふんわり真ん中（サーブのトリガーにもなる）
+      this.onShot({ kind: 'drive', aim: 0, power: 0.5 });
       return;
     }
-    const clamped = Math.min(len, JOY_RADIUS);
-    dx = (dx / len) * clamped;
-    dy = (dy / len) * clamped;
-    // 画面の上方向 = ネット方向(+y)
-    this.joyVec = { x: dx / JOY_RADIUS, y: -dy / JOY_RADIUS };
-    this.setKnob(dx, dy);
-    this.apply();
-  };
-
-  private readonly onJoyUp = (e: PointerEvent): void => {
-    if (e.pointerId !== this.joyPointer) return;
-    this.joyPointer = null;
-    this.joyVec = { x: 0, y: 0 };
-    this.joyBase.hidden = true;
-    this.apply();
-  };
-
-  private readonly onBtnA = (e: PointerEvent): void => {
-    e.preventDefault();
-    this.onSwing('drive');
-  };
-
-  private readonly onBtnB = (e: PointerEvent): void => {
-    e.preventDefault();
-    this.onSwing('lob');
+    const m = this.metrics(dx, dy);
+    const kind: ShotKind = len / dur < LOB_SPEED ? 'lob' : 'drive';
+    this.onShot({ kind, aim: m.aim, power: m.power });
   };
 
   private readonly onBtnC = (e: PointerEvent): void => {
     e.preventDefault();
-    this.onSwing('special');
+    e.stopPropagation();
+    this.onShot({ kind: 'special', aim: 0, power: 1 });
   };
 
   constructor() {
     window.addEventListener('keydown', this.onKeyDown);
     window.addEventListener('keyup', this.onKeyUp);
-    this.joyZone.addEventListener('pointerdown', this.onJoyDown);
-    this.joyZone.addEventListener('pointermove', this.onJoyMove);
-    this.joyZone.addEventListener('pointerup', this.onJoyUp);
-    this.joyZone.addEventListener('pointercancel', this.onJoyUp);
-    this.btnA.addEventListener('pointerdown', this.onBtnA);
-    this.btnB.addEventListener('pointerdown', this.onBtnB);
+    this.zone.addEventListener('pointerdown', this.onDown);
+    this.zone.addEventListener('pointermove', this.onMove);
+    this.zone.addEventListener('pointerup', this.onUp);
+    this.zone.addEventListener('pointercancel', this.onUp);
     this.btnC.addEventListener('pointerdown', this.onBtnC);
-  }
-
-  private setKnob(dx: number, dy: number): void {
-    const l = Math.hypot(dx, dy);
-    const c = Math.min(l, JOY_RADIUS);
-    const ux = l > 0 ? dx / l : 0;
-    const uy = l > 0 ? dy / l : 0;
-    this.joyKnob.style.transform = `translate(${ux * c}px, ${uy * c}px)`;
-  }
-
-  private updateKeyboard(): void {
-    const k = this.keys;
-    let x = 0;
-    let y = 0;
-    if (k.has('KeyA') || k.has('ArrowLeft')) x -= 1;
-    if (k.has('KeyD') || k.has('ArrowRight')) x += 1;
-    if (k.has('KeyW') || k.has('ArrowUp')) y += 1;
-    if (k.has('KeyS') || k.has('ArrowDown')) y -= 1;
-    const len = Math.hypot(x, y);
-    this.keysVec = len > 1 ? { x: x / len, y: y / len } : { x, y };
-    this.apply();
-  }
-
-  private keysVec = { x: 0, y: 0 };
-
-  private apply(): void {
-    // ジョイスティック優先、なければキーボード
-    if (this.joyPointer !== null) this.state = { ...this.joyVec };
-    else this.state = { ...this.keysVec };
   }
 
   dispose(): void {
     window.removeEventListener('keydown', this.onKeyDown);
     window.removeEventListener('keyup', this.onKeyUp);
-    this.joyZone.removeEventListener('pointerdown', this.onJoyDown);
-    this.joyZone.removeEventListener('pointermove', this.onJoyMove);
-    this.joyZone.removeEventListener('pointerup', this.onJoyUp);
-    this.joyZone.removeEventListener('pointercancel', this.onJoyUp);
-    this.btnA.removeEventListener('pointerdown', this.onBtnA);
-    this.btnB.removeEventListener('pointerdown', this.onBtnB);
+    this.zone.removeEventListener('pointerdown', this.onDown);
+    this.zone.removeEventListener('pointermove', this.onMove);
+    this.zone.removeEventListener('pointerup', this.onUp);
+    this.zone.removeEventListener('pointercancel', this.onUp);
     this.btnC.removeEventListener('pointerdown', this.onBtnC);
-    this.joyBase.hidden = true;
   }
 }

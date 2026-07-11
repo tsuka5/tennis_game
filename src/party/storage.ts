@@ -115,6 +115,26 @@ export function resetPoints(group: string, names: string[]): void {
   save(store);
 }
 
+const SPECIAL_KEY = 'lucky-smash-special';
+
+/** 自作必殺技の読み込み（生値。使用側で sanitizeSpecial すること） */
+export function loadSpecial(): unknown {
+  try {
+    const raw = localStorage.getItem(SPECIAL_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveSpecial(sp: unknown): void {
+  try {
+    localStorage.setItem(SPECIAL_KEY, JSON.stringify(sp));
+  } catch {
+    /* noop */
+  }
+}
+
 export function loadMyName(): string {
   return localStorage.getItem(NAME_KEY) ?? '';
 }

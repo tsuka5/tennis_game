@@ -4,9 +4,10 @@
  * ここではルール判定にのみ使う。
  */
 import { COURT, PLAY, SERVE } from '../config';
-import type { FxCounters, Phase, Score, ShotKind } from '../net/protocol';
+import type { FxCounters, Phase, Score, ShotKind, SpecialSpec } from '../net/protocol';
 import { BallSim, shotAtLanding, shotWithClearance } from './physics';
 import { addPoint, newScore } from './score';
+import { DEFAULT_SPECIAL } from './special';
 
 export interface PlayerState {
   x: number;
@@ -22,6 +23,8 @@ export interface SwingCmd {
   kind: ShotKind;
   /** そのプレイヤー視点の左右狙い -1..1 */
   aim: number;
+  /** スワイプの強さ 0..1（深さ・速さ）。省略時は 0.7 */
+  power?: number;
 }
 
 const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
@@ -66,6 +69,8 @@ export interface ShotPlan {
 /**
  * 返球の弾道プラン（決定論部分）。doHit の実弾道と、打つ前の
  * 着地予測マーカー表示の両方で使い、表示と実際のズレをなくす。
+ * Tennis Clash 式: スワイプの強さ（power）が深さと速さを決める。
+ * ボールを前で捉えたタイミングボーナスが少しだけ上乗せされる。
  * oppX を渡すと、必殺で狙いが中立のとき相手から遠いコーナーを自動選択する。
  */
 export function planShot(
@@ -74,43 +79,59 @@ export function planShot(
   s: 1 | -1,
   cmd: SwingCmd,
   oppX = 0,
+  spec: SpecialSpec = DEFAULT_SPECIAL,
 ): ShotPlan {
-  // 押したタイミング: ボールを体の前（ネット寄り）で捉えるほど 1、
-  // 引きつけて（遅らせて）打つほど 0。返球の深さと速さが変わる。
+  // タイミング: ボールを体の前（ネット寄り）で捉えるほど 1
   const frontDist = (pl.z - b.z) * s;
   const front = clamp((frontDist + PLAY.REACH) / (2 * PLAY.REACH), 0, 1);
+  const power = clamp(cmd.power ?? 0.7, 0, 1);
 
   const special = cmd.kind === 'special';
   const smash = cmd.kind === 'drive' && b.y > PLAY.SMASH_MIN_Y;
   let t: number;
   let depth: number;
   let margin: number;
+  let aim = cmd.aim;
+
   if (special) {
-    // 必殺: 超高速・低弾道・深いコース
-    t = 0.46 - 0.06 * front;
-    depth = 0.82;
-    margin = 0.04;
+    // 自作必殺技: タイプ + 配分（速さ spd / 深さ dep / 角度 ang）
+    if (spec.type === 'drop') {
+      // ネット際に落とす（深さ配分が高いほどネット寄り）
+      t = 0.95 - 0.07 * spec.spd;
+      depth = (1.6 + (4 - spec.dep) * 0.45) / COURT.HALF_L;
+      margin = 0.45;
+    } else if (spec.type === 'moon') {
+      // 超高弾道で深くバウンドの高いロブ
+      t = 2.1 - 0.12 * spec.spd;
+      depth = 0.72 + 0.05 * spec.dep;
+      margin = 2.6;
+    } else {
+      // スピード: 超高速・低弾道
+      t = 0.62 - 0.045 * spec.spd;
+      depth = 0.55 + 0.075 * spec.dep;
+      margin = 0.05;
+    }
+    // 角度配分が高いほどサイドを深く突ける
+    const sharp = 0.65 + 0.0875 * spec.ang;
+    if (Math.abs(aim) < 0.15) aim = -Math.sign(oppX || 1) * s; // 相手から遠い側へ
+    aim = clamp(aim, -1, 1) * sharp;
   } else if (cmd.kind === 'lob') {
-    t = 1.55;
-    depth = 0.6 + 0.3 * front;
+    t = 1.7 - 0.25 * power;
+    depth = 0.5 + 0.35 * power + 0.08 * front;
     margin = 1.7;
   } else if (smash) {
-    t = 0.58 - 0.12 * front; // 早いタイミングで叩くほど鋭い
-    depth = 0.5 + 0.4 * front;
+    t = 0.66 - 0.18 * power - 0.06 * front;
+    depth = 0.45 + 0.4 * power;
     margin = 0.05;
   } else {
-    t = 0.95 - 0.2 * front; // 前で捉えるほど速く
-    depth = 0.45 + 0.5 * front; // 前で捉えるほど深く、引きつけるとドロップ気味
-    margin = 0.28;
+    // スワイプが長いほど速く深く、短いとドロップ気味。速いショットほどリスク増
+    t = 1.05 - 0.42 * power - 0.08 * front;
+    depth = 0.3 + 0.58 * power + 0.1 * front;
+    margin = 0.52 - 0.34 * power;
   }
 
-  let aim = cmd.aim;
-  if (special && Math.abs(aim) < 0.15) {
-    // 狙いが中立なら相手から遠いサイドへ（本人視点の左右に変換）
-    aim = -Math.sign(oppX || 1) * s * 0.95;
-  }
   const tx = clamp(aim * s * (COURT.HALF_SW - 0.6), -(COURT.HALF_SW - 0.35), COURT.HALF_SW - 0.35);
-  const tz = -s * clamp(COURT.HALF_L * depth, 2.2, COURT.HALF_L - 0.4);
+  const tz = -s * clamp(COURT.HALF_L * depth, 1.8, COURT.HALF_L - 0.4);
   return { tx, tz, t, margin, smash, special };
 }
 
@@ -140,11 +161,22 @@ export class HostSim {
   private serveBoxXSign = 1;
   private serveT = 0;
   private timer = 1.2;
+  /** 先行入力: スワイプが早すぎたらボールが届くまで保持して自動発動 */
+  private pendingSwing: [{ cmd: SwingCmd; timer: number } | null, { cmd: SwingCmd; timer: number } | null] = [
+    null,
+    null,
+  ];
 
   private readonly gamesToWin: number;
+  private readonly specials: [SpecialSpec, SpecialSpec];
 
-  constructor(firstServer: 0 | 1, gamesToWin: number) {
+  constructor(
+    firstServer: 0 | 1,
+    gamesToWin: number,
+    specials: [SpecialSpec, SpecialSpec] = [DEFAULT_SPECIAL, DEFAULT_SPECIAL],
+  ) {
     this.gamesToWin = gamesToWin;
+    this.specials = specials;
     this.score = newScore(firstServer);
     this.say('スタート！');
   }
@@ -182,6 +214,7 @@ export class HostSim {
     this.serving = false;
     this.bouncesSinceHit = 0;
     this.canSwingArr = [false, false];
+    this.pendingSwing = [null, null];
     this.phase = 'await-serve';
     this.serveT = 0;
     this.updateServeAim();
@@ -224,16 +257,21 @@ export class HostSim {
     return right >= 0 ? 1 : -1;
   }
 
-  /** スイング入力。当たれば true。 */
+  /** スイング入力。すぐ当たらなければ少しの間バッファして自動発動する。 */
   trySwing(i: 0 | 1, cmd: SwingCmd): boolean {
-    this.players[i].swing = this.swingDirFor(i);
     if (this.phase === 'await-serve' && i === this.score.server) {
+      this.players[i].swing = this.swingDirFor(i);
       this.doServe();
       return true;
     }
     if (this.canHit(i)) {
+      this.players[i].swing = this.swingDirFor(i);
       this.doHit(i, cmd);
       return true;
+    }
+    // 先行入力（Tennis Clash 式: 早めのスワイプはボール到達時に発動）
+    if (this.phase === 'rally' && this.canSwingArr[i]) {
+      this.pendingSwing[i] = { cmd, timer: 0.9 };
     }
     return false;
   }
@@ -268,12 +306,19 @@ export class HostSim {
     // 必殺はゲージ満タンのときだけ（足りなければ通常ショット扱い）
     let kind = cmd.kind;
     if (kind === 'special' && this.meters[i] < 1) kind = 'drive';
-    const plan = planShot(b, this.players[i], s, { kind, aim: cmd.aim }, this.players[1 - i].x);
+    const plan = planShot(
+      b,
+      this.players[i],
+      s,
+      { kind, aim: cmd.aim, power: cmd.power },
+      this.players[1 - i].x,
+      this.specials[i],
+    );
 
     if (plan.special) {
       this.meters[i] = 0;
       this.fx.smash++;
-      this.say('⚡ 必殺ショット！');
+      this.say(`⚡ ${this.specials[i].name}！`);
     } else {
       this.meters[i] = Math.min(1, this.meters[i] + SPECIAL_CHARGE);
       if (plan.smash) {
@@ -323,6 +368,20 @@ export class HostSim {
     }
 
     if (this.phase !== 'rally') return;
+
+    // 先行入力の消化: ボールが届いた瞬間に発動
+    for (const i of [0, 1] as const) {
+      const p = this.pendingSwing[i];
+      if (!p) continue;
+      p.timer -= dt;
+      if (p.timer <= 0) {
+        this.pendingSwing[i] = null;
+      } else if (this.canHit(i)) {
+        this.pendingSwing[i] = null;
+        this.players[i].swing = this.swingDirFor(i);
+        this.doHit(i, p.cmd);
+      }
+    }
 
     const ev = this.ball.step(dt);
     if (ev.netHit) {

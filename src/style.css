@@ -338,6 +338,46 @@ body {
   font-size: 13px;
 }
 
+/* ===================== 必殺技エディター ===================== */
+.sp-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 0;
+  font-size: 14px;
+}
+
+.sp-row .sp-label {
+  width: 4.5em;
+  text-align: left;
+  font-weight: 700;
+  opacity: 0.85;
+}
+
+.sp-row .sp-bar {
+  flex: 1;
+  display: flex;
+  gap: 4px;
+}
+
+.sp-row .sp-cell {
+  flex: 1;
+  height: 12px;
+  border-radius: 4px;
+  background: #ffffff18;
+}
+
+.sp-row .sp-cell.on {
+  background: var(--accent);
+  box-shadow: 0 0 8px #ccff3355;
+}
+
+#sp-types .btn.sel {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #10210a;
+}
+
 /* ===================== ベット / 観戦予想 ===================== */
 #bet-panel {
   border-top: 1px solid #ffffff1c;
@@ -642,10 +682,16 @@ body {
   text-shadow: 0 1px 6px #000;
 }
 
-/* タッチ操作系（粗いポインタ = スマホ/タブレットのみ表示） */
-#joy-zone,
-#touch-buttons,
-#joy-base {
+/* スワイプ入力ゾーン（全デバイス。ボタン類は DOM 順で上に重なる） */
+#swipe-zone {
+  position: absolute;
+  inset: 0;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+/* 必殺ボタン（タッチ端末のみ表示。PC は C キー） */
+#touch-buttons {
   display: none;
 }
 
@@ -654,46 +700,12 @@ body {
     display: none;
   }
 
-  #joy-zone {
-    display: block;
-    position: absolute;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    width: 45%;
-    pointer-events: auto;
-  }
-
-  #joy-base {
-    display: block;
-    position: absolute;
-    width: 120px;
-    height: 120px;
-    margin: -60px 0 0 -60px;
-    border-radius: 50%;
-    border: 2px solid #ffffff55;
-    background: #ffffff10;
-  }
-
-  #joy-knob {
-    position: absolute;
-    width: 54px;
-    height: 54px;
-    left: 33px;
-    top: 33px;
-    border-radius: 50%;
-    background: #ffffffaa;
-    box-shadow: 0 2px 10px #00000088;
-  }
-
   #touch-buttons {
     display: flex;
-    gap: 18px;
     position: absolute;
     right: 22px;
     bottom: 26px;
     pointer-events: auto;
-    align-items: flex-end;
   }
 
   .shot-btn {
@@ -702,22 +714,6 @@ body {
     font-weight: 800;
     color: #fff;
     text-shadow: 0 1px 4px #000;
-  }
-
-  .shot-btn.drive {
-    width: 104px;
-    height: 104px;
-    font-size: 17px;
-    background: #39d98a33;
-    border-color: #39d98a;
-  }
-
-  .shot-btn.lob {
-    width: 76px;
-    height: 76px;
-    font-size: 14px;
-    background: #4aa3ff33;
-    border-color: #4aa3ff;
   }
 
   .shot-btn.special {

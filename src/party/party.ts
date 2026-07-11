@@ -15,9 +15,11 @@ import type {
   RouletteKind,
   Score,
   Snapshot,
+  SpecialSpec,
 } from '../net/protocol';
+import { DEFAULT_SPECIAL, sanitizeSpecial } from '../sim/special';
 import { RouletteView } from '../ui/roulette';
-import { addResult, adjustPoints, getStats, resetPoints } from './storage';
+import { addResult, adjustPoints, getStats, loadSpecial, resetPoints } from './storage';
 
 const $ = (id: string): HTMLElement => document.getElementById(id) as HTMLElement;
 
@@ -240,10 +242,14 @@ export class PartyHost {
   /** ルームが閉じた（エラー含む）ときにメニューへ戻すためのフック */
   onEnd: (message?: string) => void = () => {};
 
+  /** 各メンバーの自作必殺技（hello で受け取り、ホストがサニタイズ済み） */
+  private readonly specs = new Map<string, SpecialSpec>();
+
   constructor(myName: string, group: string, roulette: RouletteView) {
     this.roulette = roulette;
     this.group = group;
     this.members.set('host', { id: 'host', name: myName, ...getStats(group, myName) });
+    this.specs.set('host', sanitizeSpecial(loadSpecial()));
     this.rotation.push('host');
 
     this.net.onData = (id, m) => this.onData(id, m);
@@ -314,6 +320,7 @@ export class PartyHost {
 
   private onData(id: string, m: ClientMsg): void {
     if (m.t === 'hello') {
+      this.specs.set(id, sanitizeSpecial(m.sp));
       this.addMember(id, m.name);
       return;
     }
@@ -365,6 +372,7 @@ export class PartyHost {
     const m = this.members.get(id);
     if (!m) return;
     this.members.delete(id);
+    this.specs.delete(id);
     this.rotation = this.rotation.filter((x) => x !== id);
     if (this.championId === id) this.championId = null;
     this.banner = `${m.name} さんが退出しました`;
@@ -518,6 +526,10 @@ export class PartyHost {
       names,
       gamesToWin,
       practice: false,
+      specials: [
+        this.specs.get(this.currentIds[0]) ?? DEFAULT_SPECIAL,
+        this.specs.get(this.currentIds[1]) ?? DEFAULT_SPECIAL,
+      ],
       net: {
         send: () => {},
         broadcast: (s: Snapshot) => this.net.broadcast(s),
@@ -628,7 +640,8 @@ export class PartyClient {
 
   constructor(code: string, myName: string, roulette: RouletteView) {
     this.roulette = roulette;
-    this.net.onOpen = () => this.net.send({ t: 'hello', name: myName });
+    this.net.onOpen = () =>
+      this.net.send({ t: 'hello', name: myName, sp: sanitizeSpecial(loadSpecial()) });
     this.net.onClose = (reason) => {
       this.destroy();
       this.onEnd(reason);
