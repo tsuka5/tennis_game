@@ -519,6 +519,11 @@ export class Game {
 
   // ============ 外部操作 ============
 
+  /** authority の現在スコア（途中退出＝棄権負けの清算に使う） */
+  authScore(): Score | null {
+    return this.sim ? this.sim.score : null;
+  }
+
   /** 練習モードの再戦 */
   rematch(): void {
     if (this.sim && this.sim.phase === 'over') {

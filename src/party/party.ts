@@ -16,6 +16,7 @@ import type {
   Score,
   Snapshot,
 } from '../net/protocol';
+import { newScore } from '../sim/score';
 import { RouletteView } from '../ui/roulette';
 import { addResult, adjustPoints, getStats, resetPoints } from './storage';
 
@@ -234,6 +235,8 @@ export class PartyHost {
   private readonly predictionsById = new Map<string, { target: 0 | 1; amount: number }>();
   private currentStake = 0;
   private currentGamesToWin = 2;
+  /** 現在の試合が清算済みか（棄権と通常決着の二重清算を防ぐ） */
+  private matchSettled = false;
 
   private readonly group: string;
 
@@ -364,10 +367,22 @@ export class PartyHost {
   private removeMember(id: string): void {
     const m = this.members.get(id);
     if (!m) return;
+
+    // 対戦中のプレイヤーの切断・退出は棄権負け。通常の決着と同じ清算
+    // （勝利pt・賭け金・観戦予想・履歴）をメンバー削除前に行う
+    let forfeited = false;
+    if (this.currentIds?.includes(id) && !this.matchSettled) {
+      const winnerIdx = (this.currentIds[0] === id ? 1 : 0) as 0 | 1;
+      this.onMatchOver(winnerIdx, this.game?.authScore() ?? newScore(0), true);
+      forfeited = true;
+    }
+
     this.members.delete(id);
     this.rotation = this.rotation.filter((x) => x !== id);
     if (this.championId === id) this.championId = null;
-    this.banner = `${m.name} さんが退出しました`;
+    this.banner = forfeited
+      ? `🚪 ${m.name} さんが途中退出（棄権負け）／ ${this.banner}`
+      : `${m.name} さんが退出しました`;
 
     // ベット中の退出: 対戦者ならベット中止、予想者なら予想を取り消す
     if (this.betting) {
@@ -378,15 +393,6 @@ export class PartyHost {
       }
     }
 
-    // 対戦中のプレイヤーが落ちたら試合中止
-    if (this.currentIds?.includes(id)) {
-      const otherId = this.currentIds[0] === id ? this.currentIds[1] : this.currentIds[0];
-      this.abortMatch();
-      if (this.members.has(otherId) && otherId !== this.championId && !this.rotation.includes(otherId)) {
-        this.rotation.unshift(otherId);
-      }
-      this.banner = `${m.name} さんが切断したため試合を中止しました`;
-    }
     this.refreshLobby();
   }
 
@@ -502,6 +508,7 @@ export class PartyHost {
     if (s0 === null || s1 === null) return;
     this.currentStake = Math.min(s0, s1);
     this.currentIds = bt.ids;
+    this.matchSettled = false;
     const names = bt.names;
     const gamesToWin = bt.gamesToWin;
     this.betting = null;
@@ -526,8 +533,9 @@ export class PartyHost {
     });
   }
 
-  private onMatchOver(winnerIdx: 0 | 1, score: Score): void {
-    if (!this.currentIds) return;
+  private onMatchOver(winnerIdx: 0 | 1, score: Score, forfeit = false): void {
+    if (!this.currentIds || this.matchSettled) return;
+    this.matchSettled = true;
     const winnerId = this.currentIds[winnerIdx];
     const loserId = this.currentIds[(1 - winnerIdx) as 0 | 1];
     const winner = this.members.get(winnerId);
@@ -540,15 +548,21 @@ export class PartyHost {
       const loserDelta = loserGames * PTS_PER_GAME - stake;
       // 過去データとして永続保存（グループ×名前キー）し、メモリ上へ反映
       const stakeNote = stake > 0 ? `（賭け${stake}pt込み）` : '';
+      const winWhy = forfeit
+        ? `${loser.name}の途中棄権で勝利${stakeNote}`
+        : `${loser.name}に勝利${stakeNote}`;
+      const loseWhy = forfeit
+        ? `途中棄権で${winner.name}に敗北${stakeNote}`
+        : `${winner.name}に敗北${stakeNote}`;
       Object.assign(
         winner,
         { id: winnerId },
-        addResult(this.group, winner.name, winnerDelta, true, `${loser.name}に勝利${stakeNote}`),
+        addResult(this.group, winner.name, winnerDelta, true, winWhy),
       );
       Object.assign(
         loser,
         { id: loserId },
-        addResult(this.group, loser.name, loserDelta, false, `${winner.name}に敗北${stakeNote}`),
+        addResult(this.group, loser.name, loserDelta, false, loseWhy),
       );
       let banner =
         `🏆 ${winner.name} の勝ち！ +${winnerDelta}pt ／ ` +
@@ -613,6 +627,11 @@ export class PartyHost {
   }
 
   destroy(): void {
+    // ホスト自身が対戦中に退出する場合も棄権負けとして台帳へ清算する
+    if (!this.destroyed && this.game && this.currentIds?.includes('host') && !this.matchSettled) {
+      const winnerIdx = (this.currentIds[0] === 'host' ? 1 : 0) as 0 | 1;
+      this.onMatchOver(winnerIdx, this.game.authScore() ?? newScore(0), true);
+    }
     this.destroyed = true;
     this.game?.dispose();
     this.game = null;
