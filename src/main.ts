@@ -6,18 +6,12 @@ import { sfx } from './core/audio';
 import { firebaseEnabled } from './friends/firebase-config';
 import type { FriendService } from './friends/friends';
 import { Game, practiceGame } from './game/Game';
+import { createLedger, isCloudRef, listKnownLedgers, openLedger } from './ledger/ledger';
+import type { LedgerRef } from './ledger/ledger';
 import type { RouletteKind } from './net/protocol';
 import { PartyClient, PartyHost, rouletteEntriesFor } from './party/party';
-import {
-  DEFAULT_GROUP,
-  adjustPoints,
-  listGroups,
-  listHistory,
-  listMembers,
-  loadMyName,
-  removeMember,
-  saveMyName,
-} from './party/storage';
+import { DEFAULT_GROUP, loadMyName, saveMyName } from './party/storage';
+import type { LogEntry } from './party/storage';
 import { RouletteView } from './ui/roulette';
 
 const $ = (id: string): HTMLElement => document.getElementById(id) as HTMLElement;
@@ -124,19 +118,22 @@ function showPanel(
   menuFriends.hidden = panel !== 'friends';
 }
 
-/** 保存済みグループでセレクトを埋める。グループがなければ false */
-function fillGroupSelect(sel: HTMLSelectElement): boolean {
-  const groups = listGroups();
-  const prev = sel.value;
+/**
+ * 知っている台帳（クラウド＋ローカル）でセレクトを埋める。
+ * option.value は refs 配列のインデックス。台帳がなければ空配列を返す。
+ */
+function fillLedgerSelect(sel: HTMLSelectElement): LedgerRef[] {
+  const refs = listKnownLedgers();
+  const prevId = refs[Number(sel.value)]?.id;
   sel.innerHTML = '';
-  for (const g of groups) {
+  refs.forEach((r, i) => {
     const opt = document.createElement('option');
-    opt.value = g;
-    opt.textContent = `📁 ${g}`;
+    opt.value = String(i);
+    opt.textContent = isCloudRef(r) ? `☁️ ${r.name}` : `📁 ${r.name}（この端末のみ）`;
+    if (r.id === prevId) opt.selected = true;
     sel.appendChild(opt);
-  }
-  if (groups.includes(prev)) sel.value = prev;
-  return groups.length > 0;
+  });
+  return refs;
 }
 
 function toMenu(message?: string): void {
@@ -164,33 +161,40 @@ for (const lv of [1, 2, 3] as const) {
 }
 
 // ===== パーティールームを作る（まずポイント共有グループを選ぶ） =====
+let createRefs: LedgerRef[] = [];
+
 $('btn-create').addEventListener('click', () => {
-  const groups = listGroups();
-  groupSelect.innerHTML = '';
-  for (const g of groups) {
-    const opt = document.createElement('option');
-    opt.value = g;
-    opt.textContent = `📁 ${g}`;
-    groupSelect.appendChild(opt);
-  }
+  createRefs = fillLedgerSelect(groupSelect);
   const fresh = document.createElement('option');
-  fresh.value = '';
+  fresh.value = 'new';
   fresh.textContent = '＋ 新しいグループを作る';
   groupSelect.appendChild(fresh);
-  if (groups.length === 0) fresh.selected = true;
+  if (createRefs.length === 0) fresh.selected = true;
   groupInput.value = '';
   showPanel('group');
 });
 
 $('btn-group-go').addEventListener('click', () => {
-  const group =
-    groupInput.value.trim().slice(0, 12) || groupSelect.value || DEFAULT_GROUP;
-  menu.hidden = true;
-  menuToast.textContent = '';
-  const host = new PartyHost(myName(), group, roulette);
-  party = host;
-  friends?.setRoom(host.code);
-  host.onEnd = (message) => toMenu(message);
+  const btn = $('btn-group-go') as HTMLButtonElement;
+  btn.disabled = true;
+  btn.textContent = '台帳に接続中…';
+  void (async () => {
+    const typed = groupInput.value.trim().slice(0, 12).replace(/[/\\]/g, '');
+    const selected = createRefs[Number(groupSelect.value)];
+    const ledger =
+      typed || !selected
+        ? await createLedger(typed || DEFAULT_GROUP)
+        : await openLedger(selected);
+    menu.hidden = true;
+    menuToast.textContent = '';
+    const host = new PartyHost(myName(), ledger, roulette);
+    party = host;
+    friends?.setRoom(host.code);
+    host.onEnd = (message) => toMenu(message);
+  })().finally(() => {
+    btn.disabled = false;
+    btn.textContent = 'このグループでルーム作成';
+  });
 });
 
 $('btn-group-back').addEventListener('click', () => showPanel('home'));
@@ -239,11 +243,10 @@ $('btn-join-back').addEventListener('click', () => {
 
 // ===== グループ管理 =====
 const manageSelect = $('manage-select') as HTMLSelectElement;
+let manageRefs: LedgerRef[] = [];
 
-function renderHistory(group: string): void {
-  const box = $('manage-history');
+function renderHistoryInto(box: HTMLElement, entries: LogEntry[]): void {
   box.innerHTML = '';
-  const entries = listHistory(group);
   if (entries.length === 0) {
     box.textContent = 'まだ履歴がありません';
     box.style.opacity = '0.5';
@@ -276,16 +279,25 @@ function renderHistory(group: string): void {
   }
 }
 
-function renderManage(): void {
-  const hasGroups = fillGroupSelect(manageSelect);
+async function renderManage(): Promise<void> {
+  manageRefs = fillLedgerSelect(manageSelect);
   const rows = $('manage-rows');
   rows.innerHTML = '';
-  $('manage-hint').textContent = hasGroups
+  const historyBox = $('manage-history');
+  const ref = manageRefs[Number(manageSelect.value)] ?? manageRefs[0];
+  $('manage-hint').textContent = ref
     ? 'ポイントは ± で調整、🗑 でメンバーを削除できます'
     : 'まだデータがありません。パーティーで遊ぶとグループが作られます';
-  renderHistory(hasGroups ? manageSelect.value : '');
-  if (!hasGroups) return;
-  for (const m of listMembers(manageSelect.value)) {
+  if (!ref) {
+    historyBox.innerHTML = '';
+    return;
+  }
+  historyBox.textContent = '読み込み中…';
+  const ledger = await openLedger(ref);
+  const [members, history] = await Promise.all([ledger.listMembers(), ledger.listHistory()]);
+  renderHistoryInto(historyBox, history);
+  rows.innerHTML = '';
+  for (const m of members) {
     const tr = document.createElement('tr');
     const tds = ['', 'pts', 'tag', 'adj'].map((cls) => {
       const td = document.createElement('td');
@@ -301,8 +313,7 @@ function renderManage(): void {
       b.className = 'pts-btn';
       b.textContent = delta > 0 ? '＋' : '－';
       b.onclick = () => {
-        adjustPoints(manageSelect.value, m.name, delta);
-        renderManage();
+        void ledger.adjustPoints(m.name, delta, '手動調整').then(() => renderManage());
       };
       tds[3].appendChild(b);
     }
@@ -310,9 +321,8 @@ function renderManage(): void {
     del.className = 'pts-btn';
     del.textContent = '🗑';
     del.onclick = () => {
-      if (confirm(`${m.name} を「${manageSelect.value}」から削除しますか？`)) {
-        removeMember(manageSelect.value, m.name);
-        renderManage();
+      if (confirm(`${m.name} を「${ref.name}」から削除しますか？`)) {
+        void ledger.removeMember(m.name).then(() => renderManage());
       }
     };
     tds[3].appendChild(del);
@@ -322,19 +332,21 @@ function renderManage(): void {
 
 $('btn-manage').addEventListener('click', () => {
   showPanel('manage');
-  renderManage();
+  void renderManage();
 });
-manageSelect.addEventListener('change', renderManage);
+manageSelect.addEventListener('change', () => void renderManage());
 $('btn-manage-back').addEventListener('click', () => showPanel('home'));
 
 // ===== 即ルーレット（保存済みの台帳で抽選。ルーム不要） =====
 const soloSelect = $('solo-group-select') as HTMLSelectElement;
+let soloRefs: LedgerRef[] = [];
 
-function renderSoloRoulette(): void {
-  const hasGroups = fillGroupSelect(soloSelect);
-  const members = hasGroups ? listMembers(soloSelect.value) : [];
+async function renderSoloRoulette(): Promise<void> {
+  soloRefs = fillLedgerSelect(soloSelect);
+  const ref = soloRefs[Number(soloSelect.value)] ?? soloRefs[0];
+  const members = ref ? await (await openLedger(ref)).listMembers() : [];
   const ok = members.length >= 2;
-  $('solo-roulette-hint').textContent = !hasGroups
+  $('solo-roulette-hint').textContent = !ref
     ? 'まだデータがありません。パーティーで遊ぶとグループが作られます'
     : ok
       ? '回す前に当選確率を確認できます'
@@ -366,17 +378,22 @@ function renderSoloRoulette(): void {
 }
 
 function spinSolo(kind: RouletteKind): void {
-  const members = listMembers(soloSelect.value);
-  if (members.length < 2) return;
-  const { entries, winner } = rouletteEntriesFor(members, kind);
-  roulette.show(kind, entries, winner);
+  const ref = soloRefs[Number(soloSelect.value)] ?? soloRefs[0];
+  if (!ref) return;
+  void openLedger(ref)
+    .then((l) => l.listMembers())
+    .then((members) => {
+      if (members.length < 2) return;
+      const { entries, winner } = rouletteEntriesFor(members, kind);
+      roulette.show(kind, entries, winner);
+    });
 }
 
 $('btn-solo-roulette').addEventListener('click', () => {
   showPanel('roulette');
-  renderSoloRoulette();
+  void renderSoloRoulette();
 });
-soloSelect.addEventListener('change', renderSoloRoulette);
+soloSelect.addEventListener('change', () => void renderSoloRoulette());
 $('btn-solo-penalty').addEventListener('click', () => spinSolo('penalty'));
 $('btn-solo-reward').addEventListener('click', () => spinSolo('reward'));
 $('btn-roulette-back').addEventListener('click', () => showPanel('home'));
@@ -509,6 +526,29 @@ $('btn-copy-invite').addEventListener('click', () => {
     history.replaceState(null, '', location.pathname);
   }
 }
+
+// ===== ロビーのポイント履歴（全員が監査できる） =====
+$('btn-lobby-history').addEventListener('click', () => {
+  const ref = party?.historyRef ?? null;
+  const box = $('history-modal-list');
+  $('history-modal').hidden = false;
+  if (!ref) {
+    box.textContent =
+      'この部屋の台帳はホスト端末にあるため、ここからは見られません（クラウド台帳なら全員見られます）';
+    box.style.opacity = '0.6';
+    return;
+  }
+  box.textContent = '読み込み中…';
+  void openLedger(ref)
+    .then((l) => l.listHistory(100))
+    .then((h) => renderHistoryInto(box, h))
+    .catch(() => {
+      box.textContent = '読み込みに失敗しました';
+    });
+});
+$('btn-history-close').addEventListener('click', () => {
+  $('history-modal').hidden = true;
+});
 
 // ===== あそびかたヘルプ =====
 for (const id of ['btn-help', 'btn-help-home']) {

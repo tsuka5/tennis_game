@@ -8,8 +8,6 @@
  * このモジュールは firebase-config.ts が設定済みのときだけ動的 import される
  * （未設定ならバンドルごと読み込まれない）。
  */
-import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously } from 'firebase/auth';
 import {
   Firestore,
   Timestamp,
@@ -18,13 +16,12 @@ import {
   documentId,
   getDoc,
   getDocs,
-  getFirestore,
   query,
   serverTimestamp,
   setDoc,
   where,
 } from 'firebase/firestore';
-import { FIREBASE_CONFIG } from './firebase-config';
+import { fb } from './fb';
 
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 /** ハートビート間隔 (ms)。この2倍強を超えて更新がなければオフライン扱い */
@@ -59,9 +56,8 @@ export class FriendService {
 
   /** 匿名ログインしてプレイヤー登録（初回はフレンドコードを発行）。 */
   static async create(name: string): Promise<FriendService> {
-    const app = initializeApp(FIREBASE_CONFIG);
-    const cred = await signInAnonymously(getAuth(app));
-    const svc = new FriendService(getFirestore(app), cred.user.uid, name);
+    const { db, uid } = await fb();
+    const svc = new FriendService(db, uid, name);
     await svc.ensurePlayer();
     svc.startHeartbeat();
     return svc;

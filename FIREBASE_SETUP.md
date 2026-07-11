@@ -50,6 +50,18 @@ service cloud.firestore {
       allow create: if request.auth != null
         && request.resource.data.uid == request.auth.uid;
     }
+
+    // ポイント台帳（クラウド化: 誰がホストでも同じグループを引き継げる）
+    // 履歴(logs)は追記のみ＝あとから改ざんできない
+    match /ledgers/{gid} {
+      allow read, create: if request.auth != null;
+      match /members/{name} {
+        allow read, write: if request.auth != null;
+      }
+      match /logs/{lid} {
+        allow read, create: if request.auth != null;
+      }
+    }
   }
 }
 ```

@@ -188,7 +188,10 @@
           <button id="btn-reset-pts" class="btn subtle">ポイントをリセット</button>
         </div>
         <p id="lobby-guest-hint" class="hint-line" hidden>ホストの操作を待っています…</p>
-        <button id="btn-help" class="btn subtle">？ あそびかた</button>
+        <div class="btn-pair">
+          <button id="btn-lobby-history" class="btn subtle">📜 ポイント履歴</button>
+          <button id="btn-help" class="btn subtle">？ あそびかた</button>
+        </div>
         <button id="btn-lobby-leave" class="btn">退出する</button>
       </div>
     </div>
@@ -200,6 +203,15 @@
       <canvas id="roulette-canvas"></canvas>
       <div id="roulette-result"></div>
       <button id="roulette-close" class="btn big primary" hidden>とじる</button>
+    </div>
+
+    <!-- ===== ポイント履歴（全員が自分の端末から監査できる） ===== -->
+    <div id="history-modal" hidden>
+      <div class="help-card">
+        <h2 class="help-title">📜 ポイント履歴</h2>
+        <div id="history-modal-list" class="history-list modal-history"></div>
+        <button id="btn-history-close" class="btn big primary">とじる</button>
+      </div>
     </div>
 
     <!-- ===== あそびかたヘルプ ===== -->

@@ -338,8 +338,13 @@ body {
   font-size: 13px;
 }
 
-/* ===================== あそびかたヘルプ ===================== */
-#help {
+/* ===================== あそびかたヘルプ / 履歴モーダル ===================== */
+.history-list.modal-history {
+  max-height: 62vh;
+}
+
+#help,
+#history-modal {
   position: fixed;
   inset: 0;
   z-index: 400;

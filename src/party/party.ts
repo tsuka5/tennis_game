@@ -6,6 +6,8 @@
  *   に従って画面を切り替える。
  */
 import { Game } from '../game/Game';
+import type { Ledger, LedgerRef } from '../ledger/ledger';
+import { isCloudRef } from '../ledger/ledger';
 import { ClientNet, HostNet, randomCode } from '../net/peer';
 import type {
   BettingState,
@@ -18,7 +20,7 @@ import type {
 } from '../net/protocol';
 import { newScore } from '../sim/score';
 import { RouletteView } from '../ui/roulette';
-import { addResult, adjustPoints, ensureMember, resetPoints } from './storage';
+import { rememberCloudLedger } from './storage';
 
 const $ = (id: string): HTMLElement => document.getElementById(id) as HTMLElement;
 
@@ -238,19 +240,37 @@ export class PartyHost {
   /** 現在の試合が清算済みか（棄権と通常決着の二重清算を防ぐ） */
   private matchSettled = false;
 
-  private readonly group: string;
+  private readonly ledger: Ledger;
+
+  /** クラウド台帳なら全員に共有する参照（履歴の監査・次回ホスト用） */
+  get ledgerRef(): LedgerRef | null {
+    return isCloudRef(this.ledger.ref) ? this.ledger.ref : null;
+  }
+
+  /** 履歴閲覧用（ホストはローカル台帳でも見られる） */
+  get historyRef(): LedgerRef {
+    return this.ledger.ref;
+  }
 
   /** ルームが閉じた（エラー含む）ときにメニューへ戻すためのフック */
   onEnd: (message?: string) => void = () => {};
 
-  constructor(myName: string, group: string, roulette: RouletteView) {
+  constructor(myName: string, ledger: Ledger, roulette: RouletteView) {
     this.roulette = roulette;
-    this.group = group;
-    this.members.set('host', { id: 'host', name: myName, ...ensureMember(group, myName) });
+    this.ledger = ledger;
+    this.members.set('host', { id: 'host', name: myName, pts: 0, wins: 0, losses: 0 });
     this.rotation.push('host');
+    // 台帳からホスト自身の持ち点を読み込む（初参加なら参加ボーナス付与）
+    void this.ledger.ensureMember(myName).then((stats) => {
+      const me = this.members.get('host');
+      if (me && !this.destroyed) {
+        Object.assign(me, stats);
+        this.refreshLobby();
+      }
+    });
 
     this.net.onData = (id, m) => this.onData(id, m);
-    this.net.onLeave = (id) => this.removeMember(id);
+    this.net.onLeave = (id) => void this.removeMember(id);
     this.net.onFatal = (reason) => {
       this.destroy();
       this.onEnd(reason);
@@ -264,7 +284,7 @@ export class PartyHost {
     ($('btn-start-match') as HTMLButtonElement).onclick = () => this.openBetting();
     ($('btn-roulette-penalty') as HTMLButtonElement).onclick = () => this.spinRoulette('penalty');
     ($('btn-roulette-reward') as HTMLButtonElement).onclick = () => this.spinRoulette('reward');
-    ($('btn-reset-pts') as HTMLButtonElement).onclick = () => this.resetAllPoints();
+    ($('btn-reset-pts') as HTMLButtonElement).onclick = () => void this.resetAllPoints();
     ($('btn-lobby-leave') as HTMLButtonElement).onclick = () => {
       this.destroy();
       this.onEnd();
@@ -284,7 +304,8 @@ export class PartyHost {
     return {
       t: 'lobby',
       code: this.code,
-      group: this.group,
+      group: this.ledger.ref.name,
+      ledger: this.ledgerRef,
       members: this.memberList,
       championId: this.championId,
       gamesToWin: this.gamesToWin(),
@@ -295,10 +316,10 @@ export class PartyHost {
   private refreshLobby(): void {
     renderLobby(this.memberList, this.championId, {
       code: this.code,
-      group: this.group,
+      group: this.ledger.ref.name,
       banner: this.banner,
       isHost: true,
-      onAdjust: (name, delta) => this.adjust(name, delta),
+      onAdjust: (name, delta) => void this.adjust(name, delta),
     });
     // ベット中は renderLobby が戻したホスト操作を再び隠してパネルを出す
     if (this.betting) this.renderBet();
@@ -306,18 +327,19 @@ export class PartyHost {
     this.net.broadcast(this.lobbyMsg());
   }
 
-  /** ポイントの動的調整（永続化して全員に共有） */
-  private adjust(name: string, delta: number): void {
+  /** ポイントの動的調整（永続化し、全員に見えるようバナーでも告知） */
+  private async adjust(name: string, delta: number): Promise<void> {
     const member = this.memberList.find((m) => m.name === name);
     if (!member) return;
-    const stats = adjustPoints(this.group, name, delta);
+    const stats = await this.ledger.adjustPoints(name, delta, '手動調整');
     Object.assign(member, stats);
+    this.banner = `⚖️ ホストが ${name} に ${delta > 0 ? '+' : ''}${delta}pt（手動調整）`;
     this.refreshLobby();
   }
 
   private onData(id: string, m: ClientMsg): void {
     if (m.t === 'hello') {
-      this.addMember(id, m.name);
+      void this.addMember(id, m.name);
       return;
     }
     if (m.t === 'bet') {
@@ -335,7 +357,7 @@ export class PartyHost {
     }
   }
 
-  private addMember(id: string, rawName: string): void {
+  private async addMember(id: string, rawName: string): Promise<void> {
     let name = rawName.trim().slice(0, 8) || 'ゲスト';
     // 同名は別人として扱えるよう連番を付ける（戦績は名前キーのため）
     const names = new Set(this.memberList.map((mm) => mm.name));
@@ -343,14 +365,20 @@ export class PartyHost {
     const base = name;
     while (names.has(name)) name = `${base}${n++}`;
 
-    const stats = ensureMember(this.group, name);
-    this.members.set(id, { id, name, ...stats });
+    // 先に 0pt で入室させ、台帳から読めたら反映（初参加なら参加ボーナス）
+    this.members.set(id, { id, name, pts: 0, wins: 0, losses: 0 });
     this.rotation.push(id);
-    this.banner =
-      stats.wins + stats.losses === 0
-        ? `${name} さんが参加しました（🎁 参加ボーナス +100pt）`
-        : `${name} さんが参加しました`;
+    this.banner = `${name} さんが参加しました`;
     this.refreshLobby();
+    const stats = await this.ledger.ensureMember(name);
+    const m = this.members.get(id);
+    if (m && !this.destroyed) {
+      Object.assign(m, stats);
+      if (stats.wins + stats.losses === 0 && stats.pts === 100) {
+        this.banner = `${name} さんが参加しました（🎁 参加ボーナス +100pt）`;
+      }
+      this.refreshLobby();
+    }
     // ベット受付中に入ってきたら予想に参加してもらう
     if (this.betting) this.net.send(id, { t: 'betting', st: this.betting });
     // 試合中に入ってきたら観戦してもらう
@@ -368,7 +396,7 @@ export class PartyHost {
     }
   }
 
-  private removeMember(id: string): void {
+  private async removeMember(id: string): Promise<void> {
     const m = this.members.get(id);
     if (!m) return;
 
@@ -377,7 +405,7 @@ export class PartyHost {
     let forfeited = false;
     if (this.currentIds?.includes(id) && !this.matchSettled) {
       const winnerIdx = (this.currentIds[0] === id ? 1 : 0) as 0 | 1;
-      this.onMatchOver(winnerIdx, this.game?.authScore() ?? newScore(0), true);
+      await this.onMatchOver(winnerIdx, this.game?.authScore() ?? newScore(0), true);
       forfeited = true;
     }
 
@@ -537,20 +565,22 @@ export class PartyHost {
     });
   }
 
-  private onMatchOver(winnerIdx: 0 | 1, score: Score, forfeit = false): void {
+  private async onMatchOver(winnerIdx: 0 | 1, score: Score, forfeit = false): Promise<void> {
     if (!this.currentIds || this.matchSettled) return;
     this.matchSettled = true;
     const winnerId = this.currentIds[winnerIdx];
     const loserId = this.currentIds[(1 - winnerIdx) as 0 | 1];
+    const currentIds = this.currentIds;
     const winner = this.members.get(winnerId);
     const loser = this.members.get(loserId);
+    // 決着の余韻を見せてからロビーへ（清算はその間に台帳へ書き込む）
+    window.setTimeout(() => this.endMatch(), 2000);
     if (winner && loser) {
       const winPts = this.currentGamesToWin === 0 ? SD_WIN_PTS : WIN_PTS;
       const loserGames = score.games[(1 - winnerIdx) as 0 | 1];
       const stake = this.currentStake;
       const winnerDelta = winPts + stake;
       const loserDelta = loserGames * PTS_PER_GAME - stake;
-      // 過去データとして永続保存（グループ×名前キー）し、メモリ上へ反映
       const stakeNote = stake > 0 ? `（賭け${stake}pt込み）` : '';
       const winWhy = forfeit
         ? `${loser.name}の途中棄権で勝利${stakeNote}`
@@ -561,12 +591,12 @@ export class PartyHost {
       Object.assign(
         winner,
         { id: winnerId },
-        addResult(this.group, winner.name, winnerDelta, true, winWhy),
+        await this.ledger.addResult(winner.name, winnerDelta, true, winWhy),
       );
       Object.assign(
         loser,
         { id: loserId },
-        addResult(this.group, loser.name, loserDelta, false, loseWhy),
+        await this.ledger.addResult(loser.name, loserDelta, false, loseWhy),
       );
       let banner =
         `🏆 ${winner.name} の勝ち！ +${winnerDelta}pt ／ ` +
@@ -577,12 +607,12 @@ export class PartyHost {
       for (const [pid, p] of this.predictionsById) {
         const pm = this.members.get(pid);
         if (!pm || p.amount <= 0) continue;
-        const hit = this.currentIds[p.target] === winnerId;
+        const hit = currentIds[p.target] === winnerId;
         const delta = hit ? p.amount : -p.amount;
         Object.assign(
           pm,
           { id: pid },
-          adjustPoints(this.group, pm.name, delta, hit ? '勝敗予想が的中' : '勝敗予想はずれ'),
+          await this.ledger.adjustPoints(pm.name, delta, hit ? '勝敗予想が的中' : '勝敗予想はずれ'),
         );
         settled.push(`${hit ? '🎯' : '💧'}${pm.name}${delta >= 0 ? '+' : ''}${delta}`);
       }
@@ -593,8 +623,8 @@ export class PartyHost {
     }
     this.currentStake = 0;
     this.predictionsById.clear();
-    // 決着の余韻を見せてからロビーへ
-    window.setTimeout(() => this.endMatch(), 2000);
+    // 台帳書き込みがロビー表示より遅れた場合に備えて再反映
+    if (!this.destroyed && !this.game) this.refreshLobby();
   }
 
   private endMatch(): void {
@@ -623,8 +653,8 @@ export class PartyHost {
     this.roulette.show(kind, entries, winner);
   }
 
-  private resetAllPoints(): void {
-    resetPoints(this.group, this.memberList.map((m) => m.name));
+  private async resetAllPoints(): Promise<void> {
+    await this.ledger.resetPoints(this.memberList.map((m) => m.name));
     for (const m of this.members.values()) m.pts = 0;
     this.banner = 'ポイントをリセットしました';
     this.refreshLobby();
@@ -634,7 +664,7 @@ export class PartyHost {
     // ホスト自身が対戦中に退出する場合も棄権負けとして台帳へ清算する
     if (!this.destroyed && this.game && this.currentIds?.includes('host') && !this.matchSettled) {
       const winnerIdx = (this.currentIds[0] === 'host' ? 1 : 0) as 0 | 1;
-      this.onMatchOver(winnerIdx, this.game.authScore() ?? newScore(0), true);
+      void this.onMatchOver(winnerIdx, this.game.authScore() ?? newScore(0), true);
     }
     this.destroyed = true;
     this.game?.dispose();
@@ -657,6 +687,8 @@ export class PartyClient {
   private destroyed = false;
   private lastMembers: MemberInfo[] = [];
   private lastBetting: BettingState | null = null;
+  /** ロビーで共有された台帳参照（履歴の閲覧用。ローカル台帳の部屋では null） */
+  historyRef: LedgerRef | null = null;
 
   onEnd: (message?: string) => void = () => {};
   /** 最初のロビー受信（=入室成功）で呼ばれる */
@@ -692,6 +724,9 @@ export class PartyClient {
       this.game?.dispose();
       this.game = null;
       this.lastMembers = m.members;
+      this.historyRef = m.ledger;
+      // 参加した台帳を覚えておく＝次回は自分がホストでも同じグループを使える
+      if (m.ledger) rememberCloudLedger(m.ledger);
       renderLobby(m.members, m.championId, {
         code: m.code,
         group: m.group,

@@ -89,6 +89,8 @@ export type HostMsg =
       code: string;
       /** ポイント共有グループ名（この単位で戦績が永続化される） */
       group: string;
+      /** クラウド台帳の参照（全員が履歴を監査でき、誰でも次回ホストになれる）。ローカル台帳なら null */
+      ledger: { id: string; name: string } | null;
       members: MemberInfo[];
       championId: string | null;
       gamesToWin: number;

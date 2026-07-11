@@ -189,6 +189,34 @@ export function resetPoints(group: string, names: string[]): void {
   save(store);
 }
 
+// ---------- クラウド台帳の「知っている一覧」（この端末が作成/参加したもの） ----------
+
+const LEDGER_KEY = 'lucky-smash-ledgers';
+
+export interface StoredLedgerRef {
+  id: string;
+  name: string;
+}
+
+export function knownCloudLedgers(): StoredLedgerRef[] {
+  try {
+    const raw = localStorage.getItem(LEDGER_KEY);
+    return raw ? (JSON.parse(raw) as StoredLedgerRef[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function rememberCloudLedger(ref: StoredLedgerRef): void {
+  try {
+    const list = knownCloudLedgers().filter((r) => r.id !== ref.id);
+    list.unshift({ id: ref.id, name: ref.name });
+    localStorage.setItem(LEDGER_KEY, JSON.stringify(list.slice(0, 30)));
+  } catch {
+    /* noop */
+  }
+}
+
 export function loadMyName(): string {
   return localStorage.getItem(NAME_KEY) ?? '';
 }
