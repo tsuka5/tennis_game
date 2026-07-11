@@ -456,6 +456,16 @@ $('btn-friends-back').addEventListener('click', () => showPanel('home'));
 // 名前を変えたらフレンド側の表示名も更新
 nameInput.addEventListener('change', () => friends?.setName(myName()));
 
+// ===== あそびかたヘルプ =====
+for (const id of ['btn-help', 'btn-help-home']) {
+  $(id).addEventListener('click', () => {
+    $('help').hidden = false;
+  });
+}
+$('btn-help-close').addEventListener('click', () => {
+  $('help').hidden = true;
+});
+
 // ===== ゲーム中の操作（練習モード用。パーティー中はロビーの退出ボタンで抜ける） =====
 $('btn-quit').addEventListener('click', () => {
   if (practice) {

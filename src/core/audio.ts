@@ -37,10 +37,10 @@ class Sfx {
     src.start(t);
   }
 
-  private tone(freq: number, dur: number, gain: number, type: OscillatorType = 'sine'): void {
+  private tone(freq: number, dur: number, gain: number, type: OscillatorType = 'sine', delay = 0): void {
     const ctx = this.ctx;
     if (!ctx) return;
-    const t = ctx.currentTime;
+    const t = ctx.currentTime + delay;
     const osc = ctx.createOscillator();
     osc.type = type;
     osc.frequency.value = freq;
@@ -91,6 +91,26 @@ class Sfx {
   fault(): void {
     this.tone(220, 0.16, 0.14, 'square');
     this.tone(165, 0.22, 0.12, 'square');
+  }
+
+  /** ルーレットの目盛りを通過するカチッ音（終盤ほど音が上がる） */
+  rlTick(intensity = 0.5): void {
+    this.tone(750 + 650 * intensity, 0.035, 0.045 + 0.07 * intensity, 'square');
+  }
+
+  /** 当選ファンファーレ（ご褒美） */
+  rlFanfare(): void {
+    const notes = [523, 659, 784, 1047];
+    notes.forEach((f, i) => this.tone(f, 0.32, 0.15, 'triangle', i * 0.11));
+    this.tone(1319, 0.5, 0.1, 'triangle', 0.44);
+    this.noise(1.1, 1200, 0.4, 0.14, 'bandpass');
+  }
+
+  /** 罰ゲーム決定のドラマチックな重低音 */
+  rlThud(): void {
+    this.tone(110, 0.5, 0.28, 'sawtooth');
+    this.tone(82, 0.75, 0.24, 'sawtooth', 0.14);
+    this.noise(0.45, 190, 0.8, 0.25, 'lowpass');
   }
 }
 

@@ -41,6 +41,7 @@
             <button id="btn-manage" class="btn">📁 グループ管理</button>
             <button id="btn-solo-roulette" class="btn">🎰 ルーレット</button>
           </div>
+          <button id="btn-help-home" class="btn subtle">？ あそびかた</button>
           <p class="hint-line">
             みんなで集まって勝ち残り戦。対戦や賭けでポイントを貯めると<br />
             罰ゲーム/ご褒美ルーレットの確率が変わります
@@ -175,16 +176,50 @@
           <button id="btn-reset-pts" class="btn subtle">ポイントをリセット</button>
         </div>
         <p id="lobby-guest-hint" class="hint-line" hidden>ホストの操作を待っています…</p>
+        <button id="btn-help" class="btn subtle">？ あそびかた</button>
         <button id="btn-lobby-leave" class="btn">退出する</button>
       </div>
     </div>
 
     <!-- ===== ルーレット ===== -->
     <div id="roulette" hidden>
+      <div id="roulette-flash"></div>
       <div id="roulette-title">ルーレット</div>
       <canvas id="roulette-canvas"></canvas>
       <div id="roulette-result"></div>
       <button id="roulette-close" class="btn big primary" hidden>とじる</button>
+    </div>
+
+    <!-- ===== あそびかたヘルプ ===== -->
+    <div id="help" hidden>
+      <div class="help-card">
+        <h2 class="help-title">あそびかた</h2>
+        <div class="help-body">
+          <p class="help-sec">🎾 操作（移動は自動！）</p>
+          <ul>
+            <li>画面を引っ張って離すと、その<b>延長線上</b>にボールが飛ぶ</li>
+            <li>強く引くほど速く・深く。引きすぎ・広すぎは<b>アウト</b>（リングが赤なら危険）</li>
+            <li>ゆっくり長く引くと<b>ロブ</b>、タップでふんわり返球</li>
+            <li>サーブは動くリングが着地点。<b>深い（赤い）ほど速い</b>。良いタイミングで引っ張ろう</li>
+          </ul>
+          <p class="help-sec">💰 ポイント</p>
+          <ul>
+            <li>はじめて参加すると <b>+100pt</b> の参加ボーナス</li>
+            <li>試合に勝つと <b>+100pt</b>（1ポイント勝負は +30pt）。負けても取ったゲーム×20pt</li>
+            <li><b>対戦前ベット</b>: 両者の賭け額の低い方に揃えて、勝者が総取り</li>
+            <li><b>観戦予想</b>: 勝者を当てると同額ゲット、外すと没収</li>
+            <li>途中で抜けると<b>棄権負け</b>。ポイントもきっちり清算されます</li>
+            <li>増減はぜんぶ「グループ管理 → ポイント履歴」に記録されます</li>
+          </ul>
+          <p class="help-sec">🎰 ルーレット</p>
+          <ul>
+            <li>💥 罰ゲーム: ポイントが<b>多いほど当たりにくい</b></li>
+            <li>🎁 ご褒美: ポイントが<b>多いほど当たりやすい</b></li>
+            <li>つまり勝てば勝つほど安全でおいしい！ポイントを稼ごう</li>
+          </ul>
+        </div>
+        <button id="btn-help-close" class="btn big primary">とじる</button>
+      </div>
     </div>
 
     <!-- ===== ゲーム中 HUD ===== -->

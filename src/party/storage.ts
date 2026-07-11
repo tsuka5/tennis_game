@@ -76,6 +76,27 @@ export function getStats(group: string, name: string): PlayerStats {
   return s ? { ...s } : { pts: 0, wins: 0, losses: 0 };
 }
 
+/** 新メンバーの初期持ち点（参加した瞬間からベット・予想に参加できるように） */
+export const INITIAL_PTS = 100;
+
+/** 台帳にいなければ初期持ち点つきで登録して返す（既存メンバーはそのまま） */
+export function ensureMember(group: string, name: string): PlayerStats {
+  const store = load();
+  const g = (store.groups[group] ??= {});
+  if (!g[name]) {
+    g[name] = { pts: INITIAL_PTS, wins: 0, losses: 0 };
+    appendLog(store, group, {
+      t: Date.now(),
+      name,
+      d: INITIAL_PTS,
+      why: '参加ボーナス',
+      after: INITIAL_PTS,
+    });
+    save(store);
+  }
+  return { ...g[name] };
+}
+
 function update(
   group: string,
   name: string,

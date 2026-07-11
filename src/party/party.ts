@@ -18,7 +18,7 @@ import type {
 } from '../net/protocol';
 import { newScore } from '../sim/score';
 import { RouletteView } from '../ui/roulette';
-import { addResult, adjustPoints, getStats, resetPoints } from './storage';
+import { addResult, adjustPoints, ensureMember, resetPoints } from './storage';
 
 const $ = (id: string): HTMLElement => document.getElementById(id) as HTMLElement;
 
@@ -246,7 +246,7 @@ export class PartyHost {
   constructor(myName: string, group: string, roulette: RouletteView) {
     this.roulette = roulette;
     this.group = group;
-    this.members.set('host', { id: 'host', name: myName, ...getStats(group, myName) });
+    this.members.set('host', { id: 'host', name: myName, ...ensureMember(group, myName) });
     this.rotation.push('host');
 
     this.net.onData = (id, m) => this.onData(id, m);
@@ -343,9 +343,13 @@ export class PartyHost {
     const base = name;
     while (names.has(name)) name = `${base}${n++}`;
 
-    this.members.set(id, { id, name, ...getStats(this.group, name) });
+    const stats = ensureMember(this.group, name);
+    this.members.set(id, { id, name, ...stats });
     this.rotation.push(id);
-    this.banner = `${name} さんが参加しました`;
+    this.banner =
+      stats.wins + stats.losses === 0
+        ? `${name} さんが参加しました（🎁 参加ボーナス +100pt）`
+        : `${name} さんが参加しました`;
     this.refreshLobby();
     // ベット受付中に入ってきたら予想に参加してもらう
     if (this.betting) this.net.send(id, { t: 'betting', st: this.betting });
