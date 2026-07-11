@@ -14,6 +14,8 @@ interface StoreV2 {
   groups: Record<string, Record<string, PlayerStats>>;
 }
 
+// キー名は旧名(touch-smash)のままだが、変更すると既存端末の
+// ポイント台帳が消えるため意図的に据え置いている
 const KEY = 'touch-smash-party-v2';
 const OLD_KEY = 'touch-smash-party-v1';
 const NAME_KEY = 'touch-smash-name';

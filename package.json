@@ -1,9 +1,9 @@
 {
-  "name": "touch-smash",
+  "name": "lucky-smash",
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "P2P multiplayer 3D tennis (Three.js + WebRTC/PeerJS)",
+  "description": "Lucky Smash - P2P multiplayer 3D party tennis with betting and roulette (Three.js + WebRTC/PeerJS)",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",

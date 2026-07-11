@@ -7,7 +7,7 @@ import { Peer } from 'peerjs';
 import type { DataConnection } from 'peerjs';
 import type { ClientMsg, HostMsg } from './protocol';
 
-const ID_PREFIX = 'touch-smash-v1-';
+const ID_PREFIX = 'lucky-smash-v1-';
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // 紛らわしい文字を除外
 export const MAX_MEMBERS = 8;
 

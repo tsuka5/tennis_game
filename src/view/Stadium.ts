@@ -215,7 +215,7 @@ function buildAdBoards(scene: THREE.Scene): void {
     ctx.font = 'italic 900 34px system-ui, sans-serif';
     ctx.textBaseline = 'middle';
     for (let x = 40; x < 1024; x += 340) {
-      ctx.fillText('TOUCH SMASH', x, 34);
+      ctx.fillText('LUCKY SMASH', x, 34);
     }
   });
   const mat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.8 });
