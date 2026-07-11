@@ -14,6 +14,7 @@ export class AiController {
   private planned = false;
   private aim = 0;
   private lob = false;
+  private special = false;
 
   update(dt: number, sim: HostSim): void {
     const me = sim.players[AI_INDEX];
@@ -67,11 +68,13 @@ export class AiController {
         this.reactTimer = 0.08 + Math.random() * 0.16;
         this.aim = (Math.random() * 2 - 1) * 0.95;
         this.lob = Math.random() < 0.14;
+        this.special = sim.meters[AI_INDEX] >= 1 && Math.random() < 0.4;
       }
       this.reactTimer -= dt;
       if (this.reactTimer <= 0) {
         this.planned = false;
-        sim.trySwing(AI_INDEX, { kind: this.lob ? 'lob' : 'drive', aim: this.aim });
+        const kind = this.special ? 'special' : this.lob ? 'lob' : 'drive';
+        sim.trySwing(AI_INDEX, { kind, aim: this.aim });
       }
     } else {
       this.planned = false;

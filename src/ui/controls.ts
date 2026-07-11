@@ -23,6 +23,7 @@ export class Controls {
   private readonly joyKnob = document.getElementById('joy-knob') as HTMLElement;
   private readonly btnA = document.getElementById('btnA') as HTMLElement;
   private readonly btnB = document.getElementById('btnB') as HTMLElement;
+  private readonly btnC = document.getElementById('btnC') as HTMLElement;
 
   private readonly onKeyDown = (e: KeyboardEvent): void => {
     if (e.repeat) {
@@ -35,6 +36,8 @@ export class Controls {
       this.onSwing('drive');
     } else if (e.code === 'KeyX' || e.code === 'ShiftLeft') {
       this.onSwing('lob');
+    } else if (e.code === 'KeyC') {
+      this.onSwing('special');
     }
     this.updateKeyboard();
   };
@@ -94,6 +97,11 @@ export class Controls {
     this.onSwing('lob');
   };
 
+  private readonly onBtnC = (e: PointerEvent): void => {
+    e.preventDefault();
+    this.onSwing('special');
+  };
+
   constructor() {
     window.addEventListener('keydown', this.onKeyDown);
     window.addEventListener('keyup', this.onKeyUp);
@@ -103,6 +111,7 @@ export class Controls {
     this.joyZone.addEventListener('pointercancel', this.onJoyUp);
     this.btnA.addEventListener('pointerdown', this.onBtnA);
     this.btnB.addEventListener('pointerdown', this.onBtnB);
+    this.btnC.addEventListener('pointerdown', this.onBtnC);
   }
 
   private setKnob(dx: number, dy: number): void {
@@ -143,6 +152,7 @@ export class Controls {
     this.joyZone.removeEventListener('pointercancel', this.onJoyUp);
     this.btnA.removeEventListener('pointerdown', this.onBtnA);
     this.btnB.removeEventListener('pointerdown', this.onBtnB);
+    this.btnC.removeEventListener('pointerdown', this.onBtnC);
     this.joyBase.hidden = true;
   }
 }

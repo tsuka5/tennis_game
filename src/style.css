@@ -568,6 +568,49 @@ body {
   }
 }
 
+/* 必殺ゲージ */
+#special-meter {
+  position: absolute;
+  bottom: 38px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+#special-meter .sp-icon {
+  font-size: 14px;
+  opacity: 0.75;
+  text-shadow: 0 1px 6px #000;
+}
+
+#special-meter-track {
+  width: min(200px, 30vw);
+  height: 8px;
+  border-radius: 999px;
+  background: #ffffff1e;
+  border: 1px solid #ffffff36;
+  overflow: hidden;
+}
+
+#special-meter-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #f2a33c, #ff5050);
+}
+
+#special-meter.full #special-meter-track {
+  border-color: #ffb340;
+  box-shadow: 0 0 14px #ffb340aa;
+}
+
+#special-meter.full .sp-icon {
+  opacity: 1;
+  animation: pulse 0.8s ease-in-out infinite;
+}
+
 /* サーブのパワーゲージ */
 #serve-meter {
   position: absolute;
@@ -675,6 +718,23 @@ body {
     font-size: 14px;
     background: #4aa3ff33;
     border-color: #4aa3ff;
+  }
+
+  .shot-btn.special {
+    width: 84px;
+    height: 84px;
+    font-size: 14px;
+    background: #ffb34033;
+    border-color: #ffb340;
+  }
+
+  .shot-btn.special:not(:disabled) {
+    box-shadow: 0 0 18px #ffb340aa;
+    animation: pulse 0.8s ease-in-out infinite;
+  }
+
+  .shot-btn.special:disabled {
+    opacity: 0.3;
   }
 
   .shot-btn:active {

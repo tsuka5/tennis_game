@@ -4,7 +4,7 @@
  * ルームはスター型: 全クライアントがホストに接続し、ホストが配信する。
  */
 
-export type ShotKind = 'drive' | 'lob';
+export type ShotKind = 'drive' | 'lob' | 'special';
 
 export type Phase = 'await-serve' | 'rally' | 'between' | 'over';
 
@@ -46,6 +46,8 @@ export interface Snapshot {
   reset: number;
   /** サーブ照準 [着地x, 着地z, パワー0..1]（await-serve 中のみ、それ以外は null） */
   sv: [number, number, number] | null;
+  /** 必殺ゲージ 0..1 [player0, player1] */
+  sm: [number, number];
 }
 
 /** ロビーのメンバー情報（ポイントはホストの端末に永続保存される） */

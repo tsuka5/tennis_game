@@ -11,8 +11,9 @@ import * as THREE from 'three';
 import { COURT, NET_RATE, PLAY, PRACTICE_GAMES_TO_WIN } from '../config';
 import { sfx } from '../core/audio';
 import type { ClientMsg, FxCounters, Phase, Score, ShotKind, Snapshot } from '../net/protocol';
-import { HostSim, serveStand } from '../sim/HostSim';
+import { HostSim, planShot, serveStand } from '../sim/HostSim';
 import type { ServeAim } from '../sim/HostSim';
+import { simulateLanding } from '../sim/physics';
 import { AiController } from '../sim/ai';
 import { BallSim } from '../sim/physics';
 import { Controls } from '../ui/controls';
@@ -56,6 +57,13 @@ export class Game {
   private readonly views: [PlayerView, PlayerView];
   private readonly ballView: BallView;
   private readonly serveAimView: ServeAimView;
+  /** 飛行中のボールの着地予測（全員に見える） */
+  private readonly landView: ServeAimView;
+  /** 自分の返球プレビュー（打った瞬間のおおよその着地点） */
+  private readonly returnAimView: ServeAimView;
+  private landTarget: { x: number; z: number } | null = null;
+  private landVKey = '';
+  private landTimer = 0;
   private readonly controls: Controls | null;
   private readonly hud = new Hud();
   private readonly clock = new THREE.Clock();
@@ -71,6 +79,7 @@ export class Game {
   private p0Target: [number, number, number] = [0, 0, 0];
   private p1Target: [number, number, number] = [0, 0, 0];
   private netServeAim: ServeAim | null = null;
+  private netMeters: [number, number] = [0, 0];
 
   /** 直近のスコア（クライアントはサーブ位置拘束の判定に使う） */
   private lastScore: Score | null = null;
@@ -119,6 +128,8 @@ export class Game {
     this.views = [v0, v1];
     this.ballView = new BallView(this.scene);
     this.serveAimView = new ServeAimView(this.scene);
+    this.landView = new ServeAimView(this.scene, { color: 0x4aa3ff, scale: 0.75, opacity: 0.8 });
+    this.returnAimView = new ServeAimView(this.scene, { color: 0xccff33, scale: 0.6, opacity: 0.7 });
 
     // カメラ: 対戦者は自陣後方の TV 視点、観戦者はサイドスタンド視点
     this.camera = new THREE.PerspectiveCamera(52, window.innerWidth / window.innerHeight, 0.1, 260);
@@ -202,6 +213,7 @@ export class Game {
     }
 
     this.netServeAim = s.sv ? { x: s.sv[0], z: s.sv[1], power: s.sv[2] } : null;
+    this.netMeters = s.sm;
 
     const [px, py, pz, vx, vy, vz] = s.b;
     if (s.ba && s.ph === 'rally') {
@@ -233,8 +245,51 @@ export class Game {
     if (this.sim) this.frameAuthority(dt);
     else this.frameClient(dt);
 
+    this.updateRallyMarkers(dt);
     this.frameCamera(dt);
     this.renderer.render(this.scene, this.camera);
+  }
+
+  /** ラリー中の着地予測マーカーと、自分の返球プレビューの更新 */
+  private updateRallyMarkers(dt: number): void {
+    const ball = this.sim ? this.sim.ball : this.localBall;
+    const phase = this.sim ? this.sim.phase : this.clientPhase;
+    const flying = phase === 'rally' && ball.active;
+
+    // 着地予測（速度が変わったときだけ物理シミュレーションし直す）
+    if (flying) {
+      const vKey = `${ball.v.x.toFixed(1)},${ball.v.y.toFixed(1)},${ball.v.z.toFixed(1)}`;
+      this.landTimer -= dt;
+      if (vKey !== this.landVKey || this.landTimer <= 0) {
+        this.landVKey = vKey;
+        this.landTimer = 0.25;
+        this.landTarget = simulateLanding(ball.p, ball.v);
+      }
+    } else {
+      this.landTarget = null;
+      this.landVKey = '';
+    }
+    this.landView.update(dt, this.landTarget ? { ...this.landTarget, power: 0 } : null);
+
+    // 返球プレビュー（ボールが自分側へ来ている間、狙い入力に追従）
+    let preview: ServeAim | null = null;
+    if (flying && this.playerIdx !== null && this.controls) {
+      const incoming = Math.sign(ball.p.z) === this.s || ball.v.z * this.s > 0;
+      if (incoming) {
+        const oppX = this.sim
+          ? this.sim.players[(1 - this.playerIdx) as 0 | 1].x
+          : (this.playerIdx === 0 ? this.p1Target : this.p0Target)[0];
+        const plan = planShot(
+          ball.p,
+          { x: this.meX, z: this.meZ },
+          this.s,
+          { kind: 'drive', aim: this.controls.state.x },
+          oppX,
+        );
+        preview = { x: plan.tx, z: plan.tz, power: 0 };
+      }
+    }
+    this.returnAimView.update(dt, preview);
   }
 
   private moveSelf(dt: number): void {
@@ -292,6 +347,7 @@ export class Game {
     const aim = sim.phase === 'await-serve' ? sim.serveAim : null;
     this.serveAimView.update(dt, aim);
     if (aim && this.playerIdx === sim.score.server) this.hud.setServePower(aim.power);
+    if (this.playerIdx !== null) this.hud.setSpecial(sim.meters[this.playerIdx]);
 
     // 決着通知（パーティーはこの後ロビーへ、練習はリザルト UI）
     if (sim.phase === 'over' && !this.matchOverFired && sim.score.winner !== null) {
@@ -347,6 +403,7 @@ export class Game {
     if (aim && this.lastScore && this.lastScore.server === this.playerIdx) {
       this.hud.setServePower(aim.power);
     }
+    if (this.playerIdx !== null) this.hud.setSpecial(this.netMeters[this.playerIdx]);
   }
 
   /** スコア/メッセージ/効果音など authority・クライアント共通の HUD 反映 */
@@ -431,6 +488,7 @@ export class Game {
         sim.phase === 'await-serve' && sim.serveAim
           ? [sim.serveAim.x, sim.serveAim.z, sim.serveAim.power]
           : null,
+      sm: [sim.meters[0], sim.meters[1]],
     };
   }
 

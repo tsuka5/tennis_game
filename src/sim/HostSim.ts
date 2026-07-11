@@ -50,6 +50,70 @@ export interface ServeAim {
   power: number;
 }
 
+/** 1回の返球で貯まる必殺ゲージ量（4回の返球で満タン） */
+export const SPECIAL_CHARGE = 0.25;
+
+export interface ShotPlan {
+  tx: number;
+  tz: number;
+  /** 滞空時間の初期値（小さいほど速い） */
+  t: number;
+  margin: number;
+  smash: boolean;
+  special: boolean;
+}
+
+/**
+ * 返球の弾道プラン（決定論部分）。doHit の実弾道と、打つ前の
+ * 着地予測マーカー表示の両方で使い、表示と実際のズレをなくす。
+ * oppX を渡すと、必殺で狙いが中立のとき相手から遠いコーナーを自動選択する。
+ */
+export function planShot(
+  b: { x: number; y: number; z: number },
+  pl: { x: number; z: number },
+  s: 1 | -1,
+  cmd: SwingCmd,
+  oppX = 0,
+): ShotPlan {
+  // 押したタイミング: ボールを体の前（ネット寄り）で捉えるほど 1、
+  // 引きつけて（遅らせて）打つほど 0。返球の深さと速さが変わる。
+  const frontDist = (pl.z - b.z) * s;
+  const front = clamp((frontDist + PLAY.REACH) / (2 * PLAY.REACH), 0, 1);
+
+  const special = cmd.kind === 'special';
+  const smash = cmd.kind === 'drive' && b.y > PLAY.SMASH_MIN_Y;
+  let t: number;
+  let depth: number;
+  let margin: number;
+  if (special) {
+    // 必殺: 超高速・低弾道・深いコース
+    t = 0.46 - 0.06 * front;
+    depth = 0.82;
+    margin = 0.04;
+  } else if (cmd.kind === 'lob') {
+    t = 1.55;
+    depth = 0.6 + 0.3 * front;
+    margin = 1.7;
+  } else if (smash) {
+    t = 0.58 - 0.12 * front; // 早いタイミングで叩くほど鋭い
+    depth = 0.5 + 0.4 * front;
+    margin = 0.05;
+  } else {
+    t = 0.95 - 0.2 * front; // 前で捉えるほど速く
+    depth = 0.45 + 0.5 * front; // 前で捉えるほど深く、引きつけるとドロップ気味
+    margin = 0.28;
+  }
+
+  let aim = cmd.aim;
+  if (special && Math.abs(aim) < 0.15) {
+    // 狙いが中立なら相手から遠いサイドへ（本人視点の左右に変換）
+    aim = -Math.sign(oppX || 1) * s * 0.95;
+  }
+  const tx = clamp(aim * s * (COURT.HALF_SW - 0.6), -(COURT.HALF_SW - 0.35), COURT.HALF_SW - 0.35);
+  const tz = -s * clamp(COURT.HALF_L * depth, 2.2, COURT.HALF_L - 0.4);
+  return { tx, tz, t, margin, smash, special };
+}
+
 export class HostSim {
   ball = new BallSim();
   score: Score;
@@ -65,6 +129,8 @@ export class HostSim {
 
   /** await-serve 中のサーブ照準（それ以外は null） */
   serveAim: ServeAim | null = null;
+  /** 必殺ゲージ 0..1（返球で貯まり、必殺で消費。試合をまたがない） */
+  meters: [number, number] = [0, 0];
 
   private lastHitter: 0 | 1 = 0;
   private bouncesSinceHit = 0;
@@ -86,6 +152,7 @@ export class HostSim {
   restart(): void {
     this.score = newScore(Math.random() < 0.5 ? 0 : 1);
     this.serveNum = 1;
+    this.meters = [0, 0];
     this.phase = 'between';
     this.timer = 1.2;
     this.say('スタート！');
@@ -196,42 +263,34 @@ export class HostSim {
   private doHit(i: 0 | 1, cmd: SwingCmd): void {
     const s = sideOf(i);
     const b = this.ball.p;
-    const pl = this.players[i];
     const from = { x: b.x, y: Math.max(b.y, 0.45), z: b.z };
 
-    // 押したタイミング: ボールを体の前（ネット寄り）で捉えるほど 1、
-    // 引きつけて（遅らせて）打つほど 0。返球の深さと速さが変わる。
-    const frontDist = (pl.z - b.z) * s; // 前方なら正
-    const front = clamp((frontDist + PLAY.REACH) / (2 * PLAY.REACH), 0, 1);
+    // 必殺はゲージ満タンのときだけ（足りなければ通常ショット扱い）
+    let kind = cmd.kind;
+    if (kind === 'special' && this.meters[i] < 1) kind = 'drive';
+    const plan = planShot(b, this.players[i], s, { kind, aim: cmd.aim }, this.players[1 - i].x);
 
-    let t: number;
-    let depth: number;
-    let margin: number;
-    const smash = cmd.kind === 'drive' && b.y > PLAY.SMASH_MIN_Y;
-    if (cmd.kind === 'lob') {
-      t = 1.55;
-      depth = 0.6 + 0.3 * front;
-      margin = 1.7;
-    } else if (smash) {
-      t = 0.58 - 0.12 * front; // 早いタイミングで叩くほど鋭い
-      depth = 0.5 + 0.4 * front;
-      margin = 0.05;
+    if (plan.special) {
+      this.meters[i] = 0;
       this.fx.smash++;
-      this.say('スマッシュ！');
+      this.say('⚡ 必殺ショット！');
     } else {
-      t = 0.95 - 0.2 * front; // 前で捉えるほど速く
-      depth = 0.45 + 0.5 * front; // 前で捉えるほど深く、引きつけるとドロップ気味
-      margin = 0.28;
+      this.meters[i] = Math.min(1, this.meters[i] + SPECIAL_CHARGE);
+      if (plan.smash) {
+        this.fx.smash++;
+        this.say('スマッシュ！');
+      }
     }
 
-    const err = (Math.random() * 2 - 1) * 0.4;
+    // 着地予測マーカーを見て狙えるよう、ブレは控えめ（必殺はブレなし）
+    const noise = plan.special ? 0 : 1;
     const tx = clamp(
-      cmd.aim * s * (COURT.HALF_SW - 0.6) + err,
+      plan.tx + (Math.random() * 2 - 1) * 0.15 * noise,
       -(COURT.HALF_SW - 0.35),
       COURT.HALF_SW - 0.35,
     );
-    const tz = -s * clamp(COURT.HALF_L * depth + (Math.random() * 2 - 1) * 0.5, 2.2, COURT.HALF_L - 0.4);
-    const v = shotWithClearance(from, tx, tz, t, margin);
+    const tz = -s * clamp(Math.abs(plan.tz) + (Math.random() * 2 - 1) * 0.2 * noise, 2.2, COURT.HALF_L - 0.4);
+    const v = shotWithClearance(from, tx, tz, plan.t, plan.margin);
     this.ball.set(from, v);
     this.serving = false;
     this.lastHitter = i;

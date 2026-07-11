@@ -14,6 +14,9 @@ export class Hud {
   private readonly serveHint = $('serve-hint');
   private readonly serveMeter = $('serve-meter');
   private readonly serveMeterFill = $('serve-meter-fill');
+  private readonly specialMeter = $('special-meter');
+  private readonly specialMeterFill = $('special-meter-fill');
+  private readonly btnSpecial = $('btnC') as HTMLButtonElement;
   private readonly result = $('result');
   private readonly resultTitle = $('result-title');
   private readonly resultDetail = $('result-detail');
@@ -27,6 +30,9 @@ export class Hud {
     this.msg.classList.remove('show');
     this.serveHint.hidden = true;
     this.serveMeter.hidden = true;
+    // 必殺ゲージは対戦者のみ
+    this.specialMeter.hidden = spectating;
+    this.setSpecial(0);
   }
 
   hide(): void {
@@ -61,6 +67,14 @@ export class Hud {
   setServePower(p: number): void {
     this.serveMeterFill.style.width = `${Math.round(p * 100)}%`;
     this.serveMeterFill.style.background = `hsl(${Math.round(120 * (1 - p))}, 90%, 55%)`;
+  }
+
+  /** 必殺ゲージ 0..1。満タンで必殺ボタン/Cキーが有効になる */
+  setSpecial(v: number): void {
+    const full = v >= 1;
+    this.specialMeterFill.style.width = `${Math.round(Math.min(1, v) * 100)}%`;
+    this.specialMeter.classList.toggle('full', full);
+    this.btnSpecial.disabled = !full;
   }
 
   showResult(won: boolean, detail: string): void {
