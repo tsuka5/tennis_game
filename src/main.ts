@@ -456,6 +456,52 @@ $('btn-friends-back').addEventListener('click', () => showPanel('home'));
 // 名前を変えたらフレンド側の表示名も更新
 nameInput.addEventListener('change', () => friends?.setName(myName()));
 
+// ===== 招待の共有（LINE / コピー） =====
+function currentRoomCode(): string | null {
+  const code = ($('lobby-code').textContent ?? '').trim();
+  return /^[A-Z0-9]{5}$/.test(code) ? code : null;
+}
+
+function inviteText(code: string): string {
+  const url = `${location.origin}${location.pathname}?room=${code}`;
+  return `🎾 ラッキースマッシュで遊ぼう！\n${url}\nリンクを開いて「参加する」を押すだけ！（ルームコード: ${code}）`;
+}
+
+$('btn-share-line').addEventListener('click', () => {
+  const code = currentRoomCode();
+  if (!code) return;
+  window.open(`https://line.me/R/share?text=${encodeURIComponent(inviteText(code))}`, '_blank');
+});
+
+$('btn-copy-invite').addEventListener('click', () => {
+  const code = currentRoomCode();
+  if (!code) return;
+  const btn = $('btn-copy-invite');
+  void navigator.clipboard
+    .writeText(inviteText(code))
+    .then(() => {
+      btn.textContent = '✓ コピーしました';
+    })
+    .catch(() => {
+      btn.textContent = 'コピーできませんでした';
+    })
+    .then(() => {
+      window.setTimeout(() => (btn.textContent = '📋 コピー'), 1600);
+    });
+});
+
+// ===== 招待リンク（?room=XXXXX）で開いたらコードを自動入力 =====
+{
+  const roomParam = new URLSearchParams(location.search).get('room');
+  if (roomParam && /^[A-Za-z0-9]{5}$/.test(roomParam)) {
+    showPanel('join');
+    joinInput.value = roomParam.toUpperCase();
+    joinStatus.textContent = '招待コードを受け取りました！「参加する」でスタート';
+    // リロードや共有で残らないよう URL からは消しておく
+    history.replaceState(null, '', location.pathname);
+  }
+}
+
 // ===== あそびかたヘルプ =====
 for (const id of ['btn-help', 'btn-help-home']) {
   $(id).addEventListener('click', () => {
