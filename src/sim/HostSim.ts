@@ -63,9 +63,22 @@ export interface ShotPlan {
   smash: boolean;
 }
 
-/** 引っ張り最小/最大での飛距離 (m)。最大はベースラインの奥＝アウトも狙える */
+/** フリック最小/最大での飛距離 (m)。最大でもアウトは狙えるが控えめに */
 const PULL_DIST_MIN = 4;
-const PULL_DIST_MAX = 26;
+const PULL_DIST_MAX = 22;
+/** 横方向の広がりの圧縮率（アウトになりにくくする） */
+const LATERAL_SCALE = 0.8;
+
+/** フリック方向の正規化（後ろ向きは前方へ丸め、横方向を圧縮） */
+function flickDir(cmd: SwingCmd, minForward: number): { ux: number; uy: number } {
+  const len = Math.hypot(cmd.dirX, cmd.dirY);
+  let ux = len > 1e-6 ? cmd.dirX / len : 0;
+  let uy = len > 1e-6 ? cmd.dirY / len : 1;
+  if (uy < minForward) uy = minForward;
+  ux *= LATERAL_SCALE;
+  const n = Math.hypot(ux, uy);
+  return { ux: ux / n, uy: uy / n };
+}
 
 /**
  * 返球の弾道プラン（決定論。着弾のブレなし）。
@@ -79,18 +92,9 @@ export function planShot(
   cmd: SwingCmd,
 ): ShotPlan {
   const power = clamp(cmd.power, 0, 1);
-  // 引っ張り方向の単位ベクトル（自分視点）。後ろ向きは前方へ丸める
-  const len = Math.hypot(cmd.dirX, cmd.dirY);
-  let ux = len > 1e-6 ? cmd.dirX / len : 0;
-  let uy = len > 1e-6 ? cmd.dirY / len : 1;
-  if (uy < 0.18) {
-    uy = 0.18;
-    const n = Math.hypot(ux, uy);
-    ux /= n;
-    uy /= n;
-  }
+  const { ux, uy } = flickDir(cmd, 0.18);
 
-  // 着地点 = ボール位置から引っ張りの延長線上
+  // 着地点 = ボール位置からフリックの延長線上
   const dist = PULL_DIST_MIN + power * (PULL_DIST_MAX - PULL_DIST_MIN);
   const tx = b.x + ux * s * dist;
   const tz = b.z - uy * s * dist;
@@ -111,6 +115,43 @@ export function planShot(
   return { tx, tz, t, margin, smash };
 }
 
+/**
+ * フリックサーブの弾道プラン。向き＝コース、強さ＝距離と速さ。
+ * 対角サービスボックスを外せばフォルトになる（狙いは自己責任）。
+ */
+export function planServe(
+  pl: { x: number; z: number },
+  s: 1 | -1,
+  cmd: SwingCmd,
+): { tx: number; tz: number; t: number; margin: number } {
+  const power = clamp(cmd.power, 0, 1);
+  const { ux, uy } = flickDir(cmd, 0.3);
+  const dist = SERVE.DIST_MIN + power * SERVE.DIST_RANGE;
+  return {
+    tx: pl.x + ux * s * dist,
+    tz: pl.z - uy * s * dist,
+    t: 1.0 - 0.45 * power,
+    margin: 0.2,
+  };
+}
+
+/** サーブが有効な対角サービスボックスに入るか（プレビューの色分け用） */
+export function inServiceBoxFor(
+  server: 0 | 1,
+  points: [number, number],
+  x: number,
+  z: number,
+): boolean {
+  const s = sideOf(server);
+  const stand = serveStand(server, points);
+  const boxSign = -Math.sign(stand.x0 + stand.x1) || 1;
+  const m = COURT.LINE_MARGIN;
+  if (Math.sign(z) !== -s) return false;
+  if (Math.abs(z) > COURT.SERVICE_LINE + m) return false;
+  if (Math.abs(x) > COURT.HALF_SW + m) return false;
+  return Math.sign(x || boxSign) === boxSign;
+}
+
 export class HostSim {
   ball = new BallSim();
   score: Score;
@@ -124,16 +165,12 @@ export class HostSim {
   msgText = '';
   resetSeq = 0;
 
-  /** await-serve 中のサーブ照準（それ以外は null） */
-  serveAim: ServeAim | null = null;
-
   private lastHitter: 0 | 1 = 0;
   private bouncesSinceHit = 0;
   private canSwingArr: [boolean, boolean] = [false, false];
   private serving = false;
   private serveNum: 1 | 2 = 1;
   private serveBoxXSign = 1;
-  private serveT = 0;
   private timer = 1.2;
   /** 先行入力: スワイプが早すぎたらボールが届くまで保持して自動発動 */
   private pendingSwing: [{ cmd: SwingCmd; timer: number } | null, { cmd: SwingCmd; timer: number } | null] = [
@@ -183,29 +220,19 @@ export class HostSim {
     this.canSwingArr = [false, false];
     this.pendingSwing = [null, null];
     this.phase = 'await-serve';
-    this.serveT = 0;
-    this.updateServeAim();
+    this.clampServer();
     this.resetSeq++;
     if (this.serveNum === 2) this.say('セカンドサーブ');
   }
 
-  /**
-   * サーブ照準の更新。サーバーをベースライン上（正しい半面）に拘束し、
-   * 予測着地点を時間の関数でスイープさせる（横=方向、深さ=パワー）。
-   */
-  private updateServeAim(): void {
+  /** サーバーをベースライン上（正しい半面）に拘束する */
+  private clampServer(): void {
     const sv = this.score.server;
-    const s = sideOf(sv);
     const stand = serveStand(sv, this.score.points);
     const pl = this.players[sv];
     pl.z = stand.z;
     pl.x = clamp(pl.x, stand.x0, stand.x1);
     this.serveBoxXSign = -Math.sign(stand.x0 + stand.x1) || 1;
-    const u = 0.5 + 0.5 * Math.sin(this.serveT * SERVE.AIM_SPEED);
-    const power = 0.5 + 0.5 * Math.sin(this.serveT * SERVE.POW_SPEED + 2.1);
-    const tx = this.serveBoxXSign * (0.55 + u * (COURT.HALF_SW - 0.95));
-    const tz = -s * (1.7 + power * (COURT.SERVICE_LINE - 2.3));
-    this.serveAim = { x: tx, z: tz, power };
   }
 
   canHit(i: 0 | 1): boolean {
@@ -228,7 +255,7 @@ export class HostSim {
   trySwing(i: 0 | 1, cmd: SwingCmd): boolean {
     if (this.phase === 'await-serve' && i === this.score.server) {
       this.players[i].swing = this.swingDirFor(i);
-      this.doServe();
+      this.doServe(cmd);
       return true;
     }
     if (this.canHit(i)) {
@@ -243,19 +270,15 @@ export class HostSim {
     return false;
   }
 
-  private doServe(): void {
+  private doServe(cmd: SwingCmd): void {
     const sv = this.score.server;
-    // 立ち位置の拘束と照準を打った瞬間の状態に更新（マーカーの位置に落ちる）
-    this.updateServeAim();
+    this.clampServer();
     const pl = this.players[sv];
-    const aim = this.serveAim as ServeAim;
     const from = { x: pl.x, y: 2.75, z: pl.z };
-    // パワーが高いほど速く・ネットすれすれの弾道になる
-    const t0 = SERVE.T_SLOW - (SERVE.T_SLOW - SERVE.T_FAST) * aim.power;
-    const margin = 0.5 - 0.42 * aim.power;
-    const v = shotAtLanding(from, aim.x, aim.z, t0, margin);
+    // フリックの向きと強さで狙う。ボックスを外せばフォルト
+    const plan = planServe(pl, sideOf(sv), cmd);
+    const v = shotAtLanding(from, plan.tx, plan.tz, plan.t, plan.margin);
     this.ball.set(from, v);
-    this.serveAim = null;
     this.serving = true;
     this.lastHitter = sv;
     this.bouncesSinceHit = 0;
@@ -302,9 +325,8 @@ export class HostSim {
     }
 
     if (this.phase === 'await-serve') {
-      // 立ち位置拘束＋照準スイープ。トス位置はサーバーに追従
-      this.serveT += dt;
-      this.updateServeAim();
+      // 立ち位置拘束。トス位置はサーバーに追従
+      this.clampServer();
       this.ball.p.x = this.players[this.score.server].x;
       return;
     }

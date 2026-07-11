@@ -725,25 +725,6 @@ body {
   }
 }
 
-/* サーブのパワーゲージ */
-#serve-meter {
-  position: absolute;
-  bottom: 19%;
-  left: 50%;
-  transform: translateX(-50%);
-  width: min(260px, 40vw);
-  height: 10px;
-  border-radius: 999px;
-  background: #ffffff1e;
-  border: 1px solid #ffffff36;
-  overflow: hidden;
-}
-
-#serve-meter-fill {
-  height: 100%;
-  width: 0%;
-  border-radius: 999px;
-}
 
 #kbd-hint {
   position: absolute;
@@ -762,13 +743,6 @@ body {
   inset: 0;
   pointer-events: auto;
   touch-action: none;
-}
-
-/* フリック軌跡の残像キャンバス */
-#flick-canvas {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
 }
 
 /* バーチャルスティック（スマホのみ） */

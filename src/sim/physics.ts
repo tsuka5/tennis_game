@@ -115,6 +115,19 @@ export function shotWithClearance(from: V3, tx: number, tz: number, t0: number, 
   return v;
 }
 
+/** 弾道プレビュー用: 最初の着地（またはネット/時間切れ）までの軌跡点列。 */
+export function simulatePath(from: V3, vel: V3, step = 1 / 90, maxT = 3): V3[] {
+  const sim = new BallSim();
+  sim.set(from, vel);
+  const pts: V3[] = [{ ...from }];
+  for (let t = 0; t < maxT; t += step) {
+    const ev = sim.step(step);
+    pts.push({ ...sim.p });
+    if (ev.bounce || ev.netHit) break;
+  }
+  return pts;
+}
+
 /** 初速 vel で打ったボールの最初の着地点（先にネットに当たったら null）。 */
 export function simulateLanding(from: V3, vel: V3): { x: number; z: number } | null {
   const sim = new BallSim();

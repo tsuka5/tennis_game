@@ -26,6 +26,7 @@ const menu = $('menu');
 const menuHome = $('menu-home');
 const menuJoin = $('menu-join');
 const menuGroup = $('menu-group');
+const menuPractice = $('menu-practice');
 const menuManage = $('menu-manage');
 const menuRoulette = $('menu-roulette');
 const menuFriends = $('menu-friends');
@@ -111,10 +112,13 @@ function myName(): string {
   return n || 'プレイヤー';
 }
 
-function showPanel(panel: 'home' | 'join' | 'group' | 'manage' | 'roulette' | 'friends'): void {
+function showPanel(
+  panel: 'home' | 'join' | 'group' | 'practice' | 'manage' | 'roulette' | 'friends',
+): void {
   menuHome.hidden = panel !== 'home';
   menuJoin.hidden = panel !== 'join';
   menuGroup.hidden = panel !== 'group';
+  menuPractice.hidden = panel !== 'practice';
   menuManage.hidden = panel !== 'manage';
   menuRoulette.hidden = panel !== 'roulette';
   menuFriends.hidden = panel !== 'friends';
@@ -147,13 +151,17 @@ function toMenu(message?: string): void {
   menuToast.textContent = message ?? '';
 }
 
-// ===== ひとりで練習 =====
-$('btn-practice').addEventListener('click', () => {
-  menu.hidden = true;
-  menuToast.textContent = '';
-  (document.activeElement as HTMLElement | null)?.blur();
-  practice = practiceGame();
-});
+// ===== ひとりで練習（CPU レベル選択 → 開始） =====
+$('btn-practice').addEventListener('click', () => showPanel('practice'));
+$('btn-practice-back').addEventListener('click', () => showPanel('home'));
+for (const lv of [1, 2, 3] as const) {
+  $(`btn-cpu-${lv}`).addEventListener('click', () => {
+    menu.hidden = true;
+    menuToast.textContent = '';
+    (document.activeElement as HTMLElement | null)?.blur();
+    practice = practiceGame(lv);
+  });
+}
 
 // ===== パーティールームを作る（まずポイント共有グループを選ぶ） =====
 $('btn-create').addEventListener('click', () => {

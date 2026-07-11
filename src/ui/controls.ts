@@ -3,7 +3,7 @@
  * - 移動は手動。スマホ = 左半分のバーチャルスティック、PC = WASD/矢印
  * - 打球はフリック（スマホ = 右半分、PC = マウスドラッグ）。
  *   フリックの向きの延長線上へ飛び、速く長いほど強い。ゆっくり = ロブ
- * - フリックの軌道は光る線として画面に残り、フェードして消える
+ * - フリック中は「これから飛ぶ軌道」が3Dで表示される（Game 側の live 参照）
  */
 import type { ShotKind } from '../net/protocol';
 
@@ -13,8 +13,6 @@ const JOY_DEADZONE = 8;
 const TAP_PX = 24;
 /** これより遅いフリック(px/s)はロブ */
 const LOB_SPEED = 330;
-/** フリック軌跡が消えるまでの時間 (ms) */
-const TRAIL_LIFE = 950;
 
 export interface SwipeShot {
   kind: ShotKind;
@@ -44,14 +42,11 @@ export class Controls {
   // フリック
   private flickPointer: number | null = null;
   private start = { x: 0, y: 0, t: 0 };
-  private trail: { x: number; y: number; t: number }[] = [];
-  private trailRaf = 0;
 
   private readonly joyZone = document.getElementById('joy-zone') as HTMLElement;
   private readonly joyBase = document.getElementById('joy-base') as HTMLElement;
   private readonly joyKnob = document.getElementById('joy-knob') as HTMLElement;
   private readonly flickZone = document.getElementById('swipe-zone') as HTMLElement;
-  private readonly trailCanvas = document.getElementById('flick-canvas') as HTMLCanvasElement;
 
   // ---------- キーボード ----------
 
@@ -158,18 +153,12 @@ export class Controls {
     if (this.flickPointer !== null) return;
     this.flickPointer = e.pointerId;
     this.start = { x: e.clientX, y: e.clientY, t: performance.now() };
-    this.trail.push({ x: e.clientX, y: e.clientY, t: performance.now() });
     this.live = { active: true, dirX: 0, dirY: 1, power: 0.1 };
     this.flickZone.setPointerCapture(e.pointerId);
-    this.ensureTrailLoop();
   };
 
   private readonly onFlickMove = (e: PointerEvent): void => {
     if (e.pointerId !== this.flickPointer) return;
-    const last = this.trail[this.trail.length - 1];
-    if (!last || Math.hypot(e.clientX - last.x, e.clientY - last.y) > 3) {
-      this.trail.push({ x: e.clientX, y: e.clientY, t: performance.now() });
-    }
     const m = this.metrics(e.clientX - this.start.x, e.clientY - this.start.y);
     this.live = { active: true, ...m };
   };
@@ -190,55 +179,6 @@ export class Controls {
     const m = this.metrics(dx, dy);
     const kind: ShotKind = len / dur < LOB_SPEED ? 'lob' : 'drive';
     this.onShot({ kind, ...m });
-  };
-
-  // ---------- フリック軌跡の描画（残像つき） ----------
-
-  private ensureTrailLoop(): void {
-    if (!this.trailRaf) this.trailRaf = requestAnimationFrame(this.renderTrail);
-  }
-
-  private readonly renderTrail = (): void => {
-    const c = this.trailCanvas;
-    const dpr = Math.min(window.devicePixelRatio, 2);
-    const w = window.innerWidth;
-    const h = window.innerHeight;
-    if (c.width !== Math.floor(w * dpr) || c.height !== Math.floor(h * dpr)) {
-      c.width = Math.floor(w * dpr);
-      c.height = Math.floor(h * dpr);
-    }
-    const ctx = c.getContext('2d') as CanvasRenderingContext2D;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, w, h);
-
-    const now = performance.now();
-    this.trail = this.trail.filter((p) => now - p.t < TRAIL_LIFE);
-
-    if (this.trail.length > 1) {
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      for (let i = 1; i < this.trail.length; i++) {
-        const a = this.trail[i - 1];
-        const b = this.trail[i];
-        const age = (now - b.t) / TRAIL_LIFE;
-        const alpha = Math.max(0, 1 - age);
-        ctx.strokeStyle = `rgba(204, 255, 51, ${alpha * 0.9})`;
-        ctx.lineWidth = 2 + alpha * 5;
-        ctx.shadowColor = '#ccff33';
-        ctx.shadowBlur = 12 * alpha;
-        ctx.beginPath();
-        ctx.moveTo(a.x, a.y);
-        ctx.lineTo(b.x, b.y);
-        ctx.stroke();
-      }
-      ctx.shadowBlur = 0;
-    }
-
-    if (this.trail.length > 0 || this.flickPointer !== null) {
-      this.trailRaf = requestAnimationFrame(this.renderTrail);
-    } else {
-      this.trailRaf = 0;
-    }
   };
 
   constructor() {
@@ -265,10 +205,6 @@ export class Controls {
     this.flickZone.removeEventListener('pointermove', this.onFlickMove);
     this.flickZone.removeEventListener('pointerup', this.onFlickUp);
     this.flickZone.removeEventListener('pointercancel', this.onFlickUp);
-    cancelAnimationFrame(this.trailRaf);
-    this.trailRaf = 0;
-    this.trail = [];
-    this.trailCanvas.getContext('2d')?.clearRect(0, 0, this.trailCanvas.width, this.trailCanvas.height);
     this.joyBase.hidden = true;
   }
 }

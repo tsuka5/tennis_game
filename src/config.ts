@@ -26,7 +26,8 @@ export const BALL = {
   R: 0.033,
   /** 見た目の半径（視認性のため実物よりやや大きく） */
   VISUAL_R: 0.075,
-  RESTITUTION: 0.78,
+  /** 反発係数（大きめ＝高く弾む。落下が高いほどバウンドも大きくなる） */
+  RESTITUTION: 0.88,
   FRICTION: 0.78,
   /** 空気抵抗（1秒あたりの水平速度減衰率） */
   DRAG: 0.045,
@@ -58,14 +59,10 @@ export const SERVE = {
   STAND_X_MIN: 0.25,
   /** 立ち位置のサイドライン寄り限界 */
   STAND_X_MAX: COURT.HALF_SW - 0.3,
-  /** 着地マーカーの左右スイープ角速度 (rad/s) */
-  AIM_SPEED: 1.7,
-  /** パワー（深さ）の往復角速度 (rad/s) */
-  POW_SPEED: 2.8,
-  /** 最弱サーブの滞空時間 (s) — 大きいほど遅い */
-  T_SLOW: 1.05,
-  /** 最強サーブの滞空時間 (s) */
-  T_FAST: 0.58,
+  /** フリック最弱時のサーブ飛距離 (m) */
+  DIST_MIN: 5,
+  /** フリック強さで加算される飛距離 (m)。強すぎるとボックスを越えてフォルト */
+  DIST_RANGE: 18,
 } as const;
 
 export const NET_RATE = {

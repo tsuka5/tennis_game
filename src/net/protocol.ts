@@ -44,8 +44,6 @@ export interface Snapshot {
   fx: FxCounters;
   /** ポイント開始時に増える。増えたら対戦者は自分の位置を合わせる */
   reset: number;
-  /** サーブ照準 [着地x, 着地z, パワー0..1]（await-serve 中のみ、それ以外は null） */
-  sv: [number, number, number] | null;
 }
 
 /** ロビーのメンバー情報（ポイントはホストの端末に永続保存される） */

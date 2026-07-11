@@ -11,10 +11,11 @@ import * as THREE from 'three';
 import { COURT, NET_RATE, PLAY, PRACTICE_GAMES_TO_WIN } from '../config';
 import { sfx } from '../core/audio';
 import type { ClientMsg, FxCounters, Phase, Score, Snapshot } from '../net/protocol';
-import { HostSim, planShot, serveStand } from '../sim/HostSim';
-import type { ServeAim } from '../sim/HostSim';
-import { simulateLanding } from '../sim/physics';
+import { HostSim, inServiceBoxFor, planServe, planShot, serveStand } from '../sim/HostSim';
+import type { ServeAim, ShotPlan } from '../sim/HostSim';
+import { shotAtLanding, simulateLanding, simulatePath } from '../sim/physics';
 import { AiController } from '../sim/ai';
+import type { AiLevel } from '../sim/ai';
 import { BallSim } from '../sim/physics';
 import { Controls } from '../ui/controls';
 import type { SwipeShot } from '../ui/controls';
@@ -22,6 +23,7 @@ import { Hud } from '../ui/hud';
 import { BallView } from '../view/BallView';
 import { KIT_AWAY, KIT_HOME, PlayerView } from '../view/PlayerView';
 import { ServeAimView } from '../view/ServeAimView';
+import { TrajectoryView } from '../view/TrajectoryView';
 import { buildStadium } from '../view/Stadium';
 
 export interface GameNet {
@@ -39,6 +41,8 @@ export interface GameOpts {
   gamesToWin: number;
   /** 練習モード（AI 対戦・リザルトと再戦 UI を出す） */
   practice: boolean;
+  /** 練習モードの CPU レベル */
+  aiLevel?: AiLevel;
   net: GameNet | null;
   /** authority のみ: 決着から少し置いて一度だけ呼ばれる */
   onMatchOver?: (winnerIdx: 0 | 1, score: Score) => void;
@@ -57,11 +61,12 @@ export class Game {
   private readonly camPos = new THREE.Vector3();
   private readonly views: [PlayerView, PlayerView];
   private readonly ballView: BallView;
-  private readonly serveAimView: ServeAimView;
   /** 飛行中のボールの着地予測（全員に見える） */
   private readonly landView: ServeAimView;
-  /** 自分の返球プレビュー（打った瞬間のおおよその着地点） */
+  /** 自分の返球/サーブプレビュー（フリック中の着地点） */
   private readonly returnAimView: ServeAimView;
+  /** フリック中の「これから飛ぶ軌道」曲線 */
+  private readonly trajectoryView: TrajectoryView;
   private landTarget: { x: number; z: number } | null = null;
   private landVKey = '';
   private landTimer = 0;
@@ -79,7 +84,6 @@ export class Game {
   private clientPhase: Phase = 'between';
   private p0Target: [number, number, number] = [0, 0, 0];
   private p1Target: [number, number, number] = [0, 0, 0];
-  private netServeAim: ServeAim | null = null;
 
   /** 直近のスコア（クライアントはサーブ位置拘束の判定に使う） */
   private lastScore: Score | null = null;
@@ -106,7 +110,7 @@ export class Game {
 
     if (opts.authority) {
       this.sim = new HostSim(Math.random() < 0.5 ? 0 : 1, opts.gamesToWin);
-      if (opts.practice) this.ai = new AiController();
+      if (opts.practice) this.ai = new AiController(opts.aiLevel);
     }
 
     // レンダラ
@@ -127,9 +131,9 @@ export class Game {
     const v1 = new PlayerView(this.scene, redIdx === 1 ? KIT_HOME : KIT_AWAY, false, 0, -(COURT.HALF_L + 1));
     this.views = [v0, v1];
     this.ballView = new BallView(this.scene);
-    this.serveAimView = new ServeAimView(this.scene);
     this.landView = new ServeAimView(this.scene, { color: 0x4aa3ff, scale: 0.75, opacity: 0.8 });
     this.returnAimView = new ServeAimView(this.scene, { color: 0xccff33, scale: 0.6, opacity: 0.7 });
+    this.trajectoryView = new TrajectoryView(this.scene);
 
     // カメラ: 対戦者は自陣後方の TV 視点、観戦者はサイドスタンド視点
     this.camera = new THREE.PerspectiveCamera(52, window.innerWidth / window.innerHeight, 0.1, 260);
@@ -216,8 +220,6 @@ export class Game {
       this.views[this.playerIdx].update(0, this.meX, this.meZ, 0, true);
     }
 
-    this.netServeAim = s.sv ? { x: s.sv[0], z: s.sv[1], power: s.sv[2] } : null;
-
     const [px, py, pz, vx, vy, vz] = s.b;
     if (s.ba && s.ph === 'rally') {
       const d = Math.hypot(this.localBall.p.x - px, this.localBall.p.y - py, this.localBall.p.z - pz);
@@ -274,26 +276,42 @@ export class Game {
     }
     this.landView.update(dt, this.landTarget ? { ...this.landTarget, power: 0 } : null);
 
-    // 返球プレビュー（ボールが自分側へ来ている間、引っ張り入力に追従。アウトは赤）
+    // フリック中のプレビュー: これから飛ぶ3D軌道 + 着地リング（アウト/ボックス外は赤）
     let preview: ServeAim | null = null;
-    let previewOut = false;
-    if (flying && this.playerIdx !== null && this.controls) {
-      const incoming = Math.sign(ball.p.z) === this.s || ball.v.z * this.s > 0;
-      const live = this.controls.live;
-      if (incoming && live.active) {
-        const plan = planShot(ball.p, this.s, {
-          kind: 'drive',
-          dirX: live.dirX,
-          dirY: live.dirY,
-          power: live.power,
-        });
+    let previewColor: number | undefined;
+    let path: ReturnType<typeof simulatePath> | null = null;
+    const live = this.controls?.live;
+    const sc = this.sim ? this.sim.score : this.lastScore;
+    if (this.playerIdx !== null && live?.active && sc) {
+      const cmd = { kind: 'drive' as const, dirX: live.dirX, dirY: live.dirY, power: live.power };
+      let plan: ShotPlan | null = null;
+      let from: { x: number; y: number; z: number } | null = null;
+      let out = false;
+      if (flying) {
+        // ラリー中: 今打ったらどう飛ぶか
+        const incoming = Math.sign(ball.p.z) === this.s || ball.v.z * this.s > 0;
+        if (incoming) {
+          plan = planShot(ball.p, this.s, cmd);
+          from = { x: ball.p.x, y: Math.max(ball.p.y, 0.45), z: ball.p.z };
+          const m = COURT.LINE_MARGIN;
+          out = Math.abs(plan.tx) > COURT.HALF_SW + m || Math.abs(plan.tz) > COURT.HALF_L + m;
+        }
+      } else if (phase === 'await-serve' && sc.server === this.playerIdx) {
+        // サーブ: フリックの向きと強さでどこに落ちるか
+        const p = planServe({ x: this.meX, z: this.meZ }, this.s, cmd);
+        plan = { ...p, smash: false };
+        from = { x: this.meX, y: 2.75, z: this.meZ };
+        out = !inServiceBoxFor(this.playerIdx, sc.points, p.tx, p.tz);
+      }
+      if (plan && from) {
+        const v = shotAtLanding(from, plan.tx, plan.tz, plan.t, plan.margin);
+        path = simulatePath(from, v);
         preview = { x: plan.tx, z: plan.tz, power: 0 };
-        const m = COURT.LINE_MARGIN;
-        previewOut =
-          Math.abs(plan.tx) > COURT.HALF_SW + m || Math.abs(plan.tz) > COURT.HALF_L + m;
+        previewColor = out ? 0xff5050 : undefined;
       }
     }
-    this.returnAimView.update(dt, preview, previewOut ? 0xff5050 : undefined);
+    this.returnAimView.update(dt, preview, previewColor);
+    this.trajectoryView.update(path, previewColor ?? 0xccff33);
   }
 
   /** 手動移動（スティック/WASD）。サーブ待ちのサーバーはベースライン上に拘束 */
@@ -347,11 +365,6 @@ export class Game {
     const b = sim.ball;
     this.consumeShared(sim.score, sim.phase, [sim.msgSeq, sim.msgText], sim.fx, true, b.p.x, b.p.z);
 
-    // サーブ照準マーカーとパワーゲージ
-    const aim = sim.phase === 'await-serve' ? sim.serveAim : null;
-    this.serveAimView.update(dt, aim);
-    if (aim && this.playerIdx === sim.score.server) this.hud.setServePower(aim.power);
-
     // 決着通知（パーティーはこの後ロビーへ、練習はリザルト UI）
     if (sim.phase === 'over' && !this.matchOverFired && sim.score.winner !== null) {
       this.matchOverFired = true;
@@ -399,13 +412,6 @@ export class Game {
     }
     const b = this.localBall;
     this.ballView.update(dt, b.p.x, b.p.y, b.p.z, b.active);
-
-    // サーブ照準マーカーとパワーゲージ
-    const aim = this.clientPhase === 'await-serve' ? this.netServeAim : null;
-    this.serveAimView.update(dt, aim);
-    if (aim && this.lastScore && this.lastScore.server === this.playerIdx) {
-      this.hud.setServePower(aim.power);
-    }
   }
 
   /** スコア/メッセージ/効果音など authority・クライアント共通の HUD 反映 */
@@ -486,10 +492,6 @@ export class Game {
       msg: [sim.msgSeq, sim.msgText],
       fx: { ...sim.fx },
       reset: sim.resetSeq,
-      sv:
-        sim.phase === 'await-serve' && sim.serveAim
-          ? [sim.serveAim.x, sim.serveAim.z, sim.serveAim.power]
-          : null,
     };
   }
 
@@ -527,13 +529,15 @@ export class Game {
   }
 }
 
-export function practiceGame(): Game {
+export function practiceGame(aiLevel: AiLevel = 2): Game {
+  const names: Record<AiLevel, string> = { 1: 'CPU よわい', 2: 'CPU ふつう', 3: 'CPU つよい' };
   return new Game({
     authority: true,
     playerIdx: 0,
-    names: ['あなた', 'AI'],
+    names: ['あなた', names[aiLevel]],
     gamesToWin: PRACTICE_GAMES_TO_WIN,
     practice: true,
+    aiLevel,
     net: null,
   });
 }

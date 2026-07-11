@@ -35,7 +35,7 @@
           <input id="name-input" class="name-input" maxlength="8" placeholder="なまえ（8文字まで）" autocomplete="off" />
           <button id="btn-create" class="btn big primary">🏟 パーティールームを作る</button>
           <button id="btn-join" class="btn big">🔑 ルームに参加</button>
-          <button id="btn-practice" class="btn big">🎾 ひとりで練習（AI対戦）</button>
+          <button id="btn-practice" class="btn big">🎾 ひとりで練習（CPU対戦）</button>
           <div class="btn-pair">
             <button id="btn-friends" class="btn">👥 フレンド</button>
             <button id="btn-manage" class="btn">📁 グループ管理</button>
@@ -67,6 +67,14 @@
           <p id="join-status" class="hint-line"></p>
           <button id="btn-join-go" class="btn big primary">参加する</button>
           <button id="btn-join-back" class="btn">← 戻る</button>
+        </div>
+
+        <div id="menu-practice" hidden>
+          <p class="panel-label">CPU のつよさ</p>
+          <button id="btn-cpu-1" class="btn big">🐣 よわい</button>
+          <button id="btn-cpu-2" class="btn big primary">🎾 ふつう</button>
+          <button id="btn-cpu-3" class="btn big">🔥 つよい</button>
+          <button id="btn-practice-back" class="btn">← 戻る</button>
         </div>
 
         <div id="menu-manage" hidden>
@@ -202,10 +210,10 @@
           <p class="help-sec">🎾 操作</p>
           <ul>
             <li>移動: 画面<b>左半分</b>のスティック（PC は WASD / 矢印）</li>
-            <li>打つ: 画面<b>右半分をフリック</b>（PC はマウス）。フリックの<b>延長線上</b>にボールが飛ぶ</li>
-            <li>速く長くフリックするほど強い。強すぎ・広すぎは<b>アウト</b>（リングが赤なら危険）</li>
+            <li>打つ: 画面<b>右半分をフリック</b>（PC はマウス）。フリック中は<b>これから飛ぶ軌道</b>が表示される</li>
+            <li>速く長くフリックするほど強い。軌道が<b>赤ならアウト</b>コース</li>
             <li>ゆっくり長くなぞると<b>ロブ</b>、タップでふんわり返球</li>
-            <li>サーブは動くリングが着地点。<b>深い（赤い）ほど速い</b>。良いタイミングでフリック！</li>
+            <li>サーブもフリック。向きと強さで<b>対角のサービスボックス</b>を狙う（外すとフォルト）</li>
           </ul>
           <p class="help-sec">💰 ポイント</p>
           <ul>
@@ -247,15 +255,12 @@
       <!-- バーチャルスティック（スマホの左半分） -->
       <div id="joy-zone"></div>
       <div id="joy-base" hidden><div id="joy-knob"></div></div>
-      <!-- フリック軌跡の残像 -->
-      <canvas id="flick-canvas"></canvas>
 
       <div id="msg"></div>
       <div id="spectating" hidden>👀 観戦中</div>
-      <div id="serve-hint" hidden>フリックでサーブ！ リングの位置に落ちます — 深いほど速い</div>
-      <div id="serve-meter" hidden><div id="serve-meter-fill"></div></div>
+      <div id="serve-hint" hidden>フリックでサーブ！ 向きと強さで対角のサービスボックスを狙おう（軌道が出ます）</div>
       <div id="kbd-hint">
-        移動: WASD / 矢印　　打つ: マウスでフリック — 軌道の延長線上へ飛ぶ／速く長いほど強い（アウト注意）／ゆっくり = ロブ
+        移動: WASD / 矢印　　打つ: マウスでフリック — 飛んでいく軌道が表示される／速く長いほど強い／ゆっくり = ロブ
       </div>
 
       <button id="btn-quit" title="メニューへ戻る">✕</button>
