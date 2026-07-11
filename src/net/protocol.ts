@@ -44,6 +44,8 @@ export interface Snapshot {
   fx: FxCounters;
   /** ポイント開始時に増える。増えたら対戦者は自分の位置を合わせる */
   reset: number;
+  /** サーブ照準 [着地x, 着地z, パワー0..1]（await-serve 中のみ、それ以外は null） */
+  sv: [number, number, number] | null;
 }
 
 /** ロビーのメンバー情報（ポイントはホストの端末に永続保存される） */
@@ -57,11 +59,28 @@ export interface MemberInfo {
 
 export type RouletteKind = 'penalty' | 'reward';
 
+/**
+ * 対戦前ベットの状態（ホスト権威。全画面に配信して表示を同期する）。
+ * 実際の賭け金は両者の賭け額の低い方に揃え、勝者が総取りする。
+ */
+export interface BettingState {
+  ids: [string, string];
+  names: [string, string];
+  /** 先取ゲーム数。0 は 1 ポイントサドンデス */
+  gamesToWin: number;
+  /** 対戦者それぞれの賭け額（null = 未確定） */
+  stakes: [number | null, number | null];
+  /** 観戦者の勝敗予想（的中で同額獲得、外れで没収） */
+  predictions: { name: string; target: 0 | 1; amount: number }[];
+}
+
 /** クライアント → ホスト */
 export type ClientMsg =
   | { t: 'hello'; name: string }
   | { t: 'pos'; p: [number, number]; sw: number }
-  | { t: 'swing'; kind: ShotKind; aim: number };
+  | { t: 'swing'; kind: ShotKind; aim: number }
+  | { t: 'bet'; amount: number }
+  | { t: 'predict'; target: 0 | 1; amount: number };
 
 /** ホスト → 全クライアント */
 export type HostMsg =
@@ -78,6 +97,7 @@ export type HostMsg =
       banner: string;
     }
   | { t: 'match'; ids: [string, string]; names: [string, string]; gamesToWin: number }
+  | { t: 'betting'; st: BettingState | null }
   | {
       t: 'roulette';
       kind: RouletteKind;

@@ -51,6 +51,23 @@ export const PLAY = {
   SMASH_MIN_Y: 1.35,
 } as const;
 
+export const SERVE = {
+  /** サーブの立ち位置（ベースラインのすぐ外） */
+  STAND_Z: COURT.HALF_L + 0.5,
+  /** 立ち位置のセンターマーク寄り限界 */
+  STAND_X_MIN: 0.25,
+  /** 立ち位置のサイドライン寄り限界 */
+  STAND_X_MAX: COURT.HALF_SW - 0.3,
+  /** 着地マーカーの左右スイープ角速度 (rad/s) */
+  AIM_SPEED: 1.7,
+  /** パワー（深さ）の往復角速度 (rad/s) */
+  POW_SPEED: 2.8,
+  /** 最弱サーブの滞空時間 (s) — 大きいほど遅い */
+  T_SLOW: 1.05,
+  /** 最強サーブの滞空時間 (s) */
+  T_FAST: 0.58,
+} as const;
+
 export const NET_RATE = {
   /** スナップショット/位置送信の間隔 (s) ≒ 30Hz */
   INTERVAL: 1 / 30,

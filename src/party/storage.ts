@@ -81,6 +81,28 @@ export function adjustPoints(group: string, name: string, delta: number): Player
   });
 }
 
+export interface MemberRow extends PlayerStats {
+  name: string;
+}
+
+/** グループの全メンバー（ポイント降順）。管理画面・単独ルーレット用 */
+export function listMembers(group: string): MemberRow[] {
+  const g = load().groups[group];
+  if (!g) return [];
+  return Object.entries(g)
+    .map(([name, s]) => ({ name, ...s }))
+    .sort((a, b) => b.pts - a.pts);
+}
+
+/** メンバーを台帳から削除する（管理画面用） */
+export function removeMember(group: string, name: string): void {
+  const store = load();
+  const g = store.groups[group];
+  if (!g) return;
+  delete g[name];
+  save(store);
+}
+
 export function resetPoints(group: string, names: string[]): void {
   const store = load();
   const g = store.groups[group];

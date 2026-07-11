@@ -114,3 +114,35 @@ export function shotWithClearance(from: V3, tx: number, tz: number, t0: number, 
   }
   return v;
 }
+
+/** 初速 vel で打ったボールの最初の着地点（先にネットに当たったら null）。 */
+export function simulateLanding(from: V3, vel: V3): { x: number; z: number } | null {
+  const sim = new BallSim();
+  sim.set(from, vel);
+  const dt = 1 / 240;
+  for (let t = 0; t < 4; t += dt) {
+    const ev = sim.step(dt);
+    if (ev.netHit) return null;
+    if (ev.bounce) return ev.bounce;
+  }
+  return null;
+}
+
+/**
+ * 着地点 (tx, tz) にドラッグ込みで「実際に」落ちる初速を求める。
+ * ソルバはドラッグを無視して手前に落ちるため、シミュレーションで測った
+ * 着地誤差ぶん照準をずらす反復で補正する（予測マーカーの位置保証用）。
+ */
+export function shotAtLanding(from: V3, tx: number, tz: number, t0: number, margin: number): V3 {
+  let ax = tx;
+  let az = tz;
+  let v = shotWithClearance(from, ax, az, t0, margin);
+  for (let i = 0; i < 3; i++) {
+    const land = simulateLanding(from, v);
+    if (!land) return v;
+    ax += tx - land.x;
+    az += tz - land.z;
+    v = shotWithClearance(from, ax, az, t0, margin);
+  }
+  return v;
+}

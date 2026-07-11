@@ -12,6 +12,8 @@ export class Hud {
   private readonly root = $('hud');
   private readonly msg = $('msg');
   private readonly serveHint = $('serve-hint');
+  private readonly serveMeter = $('serve-meter');
+  private readonly serveMeterFill = $('serve-meter-fill');
   private readonly result = $('result');
   private readonly resultTitle = $('result-title');
   private readonly resultDetail = $('result-detail');
@@ -24,6 +26,7 @@ export class Hud {
     this.result.hidden = true;
     this.msg.classList.remove('show');
     this.serveHint.hidden = true;
+    this.serveMeter.hidden = true;
   }
 
   hide(): void {
@@ -51,6 +54,13 @@ export class Hud {
 
   setServeHint(visible: boolean): void {
     this.serveHint.hidden = !visible;
+    this.serveMeter.hidden = !visible;
+  }
+
+  /** サーブのパワーゲージ 0..1（緑=遅い → 赤=速い） */
+  setServePower(p: number): void {
+    this.serveMeterFill.style.width = `${Math.round(p * 100)}%`;
+    this.serveMeterFill.style.background = `hsl(${Math.round(120 * (1 - p))}, 90%, 55%)`;
   }
 
   showResult(won: boolean, detail: string): void {

@@ -11,13 +11,15 @@ import * as THREE from 'three';
 import { COURT, NET_RATE, PLAY, PRACTICE_GAMES_TO_WIN } from '../config';
 import { sfx } from '../core/audio';
 import type { ClientMsg, FxCounters, Phase, Score, ShotKind, Snapshot } from '../net/protocol';
-import { HostSim } from '../sim/HostSim';
+import { HostSim, serveStand } from '../sim/HostSim';
+import type { ServeAim } from '../sim/HostSim';
 import { AiController } from '../sim/ai';
 import { BallSim } from '../sim/physics';
 import { Controls } from '../ui/controls';
 import { Hud } from '../ui/hud';
 import { BallView } from '../view/BallView';
 import { KIT_AWAY, KIT_HOME, PlayerView } from '../view/PlayerView';
+import { ServeAimView } from '../view/ServeAimView';
 import { buildStadium } from '../view/Stadium';
 
 export interface GameNet {
@@ -53,6 +55,7 @@ export class Game {
   private readonly camPos = new THREE.Vector3();
   private readonly views: [PlayerView, PlayerView];
   private readonly ballView: BallView;
+  private readonly serveAimView: ServeAimView;
   private readonly controls: Controls | null;
   private readonly hud = new Hud();
   private readonly clock = new THREE.Clock();
@@ -67,6 +70,10 @@ export class Game {
   private clientPhase: Phase = 'between';
   private p0Target: [number, number, number] = [0, 0, 0];
   private p1Target: [number, number, number] = [0, 0, 0];
+  private netServeAim: ServeAim | null = null;
+
+  /** 直近のスコア（クライアントはサーブ位置拘束の判定に使う） */
+  private lastScore: Score | null = null;
 
   // 自機（対戦者のみ・ローカル権威）
   private meX = 0;
@@ -111,6 +118,7 @@ export class Game {
     const v1 = new PlayerView(this.scene, redIdx === 1 ? KIT_HOME : KIT_AWAY, false, 0, -(COURT.HALF_L + 1));
     this.views = [v0, v1];
     this.ballView = new BallView(this.scene);
+    this.serveAimView = new ServeAimView(this.scene);
 
     // カメラ: 対戦者は自陣後方の TV 視点、観戦者はサイドスタンド視点
     this.camera = new THREE.PerspectiveCamera(52, window.innerWidth / window.innerHeight, 0.1, 260);
@@ -193,6 +201,8 @@ export class Game {
       this.views[this.playerIdx].update(0, this.meX, this.meZ, 0, true);
     }
 
+    this.netServeAim = s.sv ? { x: s.sv[0], z: s.sv[1], power: s.sv[2] } : null;
+
     const [px, py, pz, vx, vy, vz] = s.b;
     if (s.ba && s.ph === 'rally') {
       const d = Math.hypot(this.localBall.p.x - px, this.localBall.p.y - py, this.localBall.p.z - pz);
@@ -236,6 +246,15 @@ export class Game {
     this.meX = clamp(this.meX, -PLAY.BOUND_X, PLAY.BOUND_X);
     if (this.s > 0) this.meZ = clamp(this.meZ, PLAY.BOUND_Z_NEAR, PLAY.BOUND_Z_FAR);
     else this.meZ = clamp(this.meZ, -PLAY.BOUND_Z_FAR, -PLAY.BOUND_Z_NEAR);
+
+    // サーブ待ちの間、サーバーはベースライン上（正しい半面側）しか動けない
+    const ph = this.sim ? this.sim.phase : this.clientPhase;
+    const sc = this.sim ? this.sim.score : this.lastScore;
+    if (ph === 'await-serve' && sc && sc.server === this.playerIdx) {
+      const stand = serveStand(this.playerIdx, sc.points);
+      this.meX = clamp(this.meX, stand.x0, stand.x1);
+      this.meZ = stand.z;
+    }
   }
 
   private frameAuthority(dt: number): void {
@@ -268,6 +287,11 @@ export class Game {
 
     const b = sim.ball;
     this.consumeShared(sim.score, sim.phase, [sim.msgSeq, sim.msgText], sim.fx, true, b.p.x, b.p.z);
+
+    // サーブ照準マーカーとパワーゲージ
+    const aim = sim.phase === 'await-serve' ? sim.serveAim : null;
+    this.serveAimView.update(dt, aim);
+    if (aim && this.playerIdx === sim.score.server) this.hud.setServePower(aim.power);
 
     // 決着通知（パーティーはこの後ロビーへ、練習はリザルト UI）
     if (sim.phase === 'over' && !this.matchOverFired && sim.score.winner !== null) {
@@ -316,6 +340,13 @@ export class Game {
     }
     const b = this.localBall;
     this.ballView.update(dt, b.p.x, b.p.y, b.p.z, b.active);
+
+    // サーブ照準マーカーとパワーゲージ
+    const aim = this.clientPhase === 'await-serve' ? this.netServeAim : null;
+    this.serveAimView.update(dt, aim);
+    if (aim && this.lastScore && this.lastScore.server === this.playerIdx) {
+      this.hud.setServePower(aim.power);
+    }
   }
 
   /** スコア/メッセージ/効果音など authority・クライアント共通の HUD 反映 */
@@ -329,6 +360,7 @@ export class Game {
     ballZ = 0,
   ): void {
     const displaySide = this.playerIdx ?? 0;
+    this.lastScore = sc;
 
     // スコア
     const key = `${sc.points[0]},${sc.points[1]},${sc.games[0]},${sc.games[1]},${sc.server}`;
@@ -395,6 +427,10 @@ export class Game {
       msg: [sim.msgSeq, sim.msgText],
       fx: { ...sim.fx },
       reset: sim.resetSeq,
+      sv:
+        sim.phase === 'await-serve' && sim.serveAim
+          ? [sim.serveAim.x, sim.serveAim.z, sim.serveAim.power]
+          : null,
     };
   }
 

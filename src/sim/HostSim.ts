@@ -3,9 +3,9 @@
  * スコア管理。プレイヤーの位置は入力側（自分/クライアント/AI）が更新し、
  * ここではルール判定にのみ使う。
  */
-import { COURT, PLAY } from '../config';
+import { COURT, PLAY, SERVE } from '../config';
 import type { FxCounters, Phase, Score, ShotKind } from '../net/protocol';
-import { BallSim, shotWithClearance } from './physics';
+import { BallSim, shotAtLanding, shotWithClearance } from './physics';
 import { addPoint, newScore } from './score';
 
 export interface PlayerState {
@@ -29,6 +29,27 @@ const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.m
 /** プレイヤー i が守る側の z 符号 */
 export const sideOf = (i: 0 | 1): 1 | -1 => (i === 0 ? 1 : -1);
 
+/**
+ * サーブを打てる立ち位置。ベースライン上（z 固定）かつ、デュース/アドサイドに
+ * 応じた正しい半面側の x 範囲 [x0, x1] のみ。
+ */
+export function serveStand(server: 0 | 1, points: [number, number]): { z: number; x0: number; x1: number } {
+  const s = sideOf(server);
+  const deuce = (points[0] + points[1]) % 2 === 0;
+  const sign = (deuce ? 1 : -1) * s;
+  const a = sign * SERVE.STAND_X_MIN;
+  const b = sign * SERVE.STAND_X_MAX;
+  return { z: s * SERVE.STAND_Z, x0: Math.min(a, b), x1: Math.max(a, b) };
+}
+
+/** サーブ照準（予測着地点とパワー）。マーカー表示とスナップショット配信に使う。 */
+export interface ServeAim {
+  x: number;
+  z: number;
+  /** 0=最弱（浅い・遅い） 1=最強（深い・速い） */
+  power: number;
+}
+
 export class HostSim {
   ball = new BallSim();
   score: Score;
@@ -42,12 +63,16 @@ export class HostSim {
   msgText = '';
   resetSeq = 0;
 
+  /** await-serve 中のサーブ照準（それ以外は null） */
+  serveAim: ServeAim | null = null;
+
   private lastHitter: 0 | 1 = 0;
   private bouncesSinceHit = 0;
   private canSwingArr: [boolean, boolean] = [false, false];
   private serving = false;
   private serveNum: 1 | 2 = 1;
   private serveBoxXSign = 1;
+  private serveT = 0;
   private timer = 1.2;
 
   private readonly gamesToWin: number;
@@ -91,8 +116,29 @@ export class HostSim {
     this.bouncesSinceHit = 0;
     this.canSwingArr = [false, false];
     this.phase = 'await-serve';
+    this.serveT = 0;
+    this.updateServeAim();
     this.resetSeq++;
     if (this.serveNum === 2) this.say('セカンドサーブ');
+  }
+
+  /**
+   * サーブ照準の更新。サーバーをベースライン上（正しい半面）に拘束し、
+   * 予測着地点を時間の関数でスイープさせる（横=方向、深さ=パワー）。
+   */
+  private updateServeAim(): void {
+    const sv = this.score.server;
+    const s = sideOf(sv);
+    const stand = serveStand(sv, this.score.points);
+    const pl = this.players[sv];
+    pl.z = stand.z;
+    pl.x = clamp(pl.x, stand.x0, stand.x1);
+    this.serveBoxXSign = -Math.sign(stand.x0 + stand.x1) || 1;
+    const u = 0.5 + 0.5 * Math.sin(this.serveT * SERVE.AIM_SPEED);
+    const power = 0.5 + 0.5 * Math.sin(this.serveT * SERVE.POW_SPEED + 2.1);
+    const tx = this.serveBoxXSign * (0.55 + u * (COURT.HALF_SW - 0.95));
+    const tz = -s * (1.7 + power * (COURT.SERVICE_LINE - 2.3));
+    this.serveAim = { x: tx, z: tz, power };
   }
 
   canHit(i: 0 | 1): boolean {
@@ -115,7 +161,7 @@ export class HostSim {
   trySwing(i: 0 | 1, cmd: SwingCmd): boolean {
     this.players[i].swing = this.swingDirFor(i);
     if (this.phase === 'await-serve' && i === this.score.server) {
-      this.doServe(cmd);
+      this.doServe();
       return true;
     }
     if (this.canHit(i)) {
@@ -125,19 +171,19 @@ export class HostSim {
     return false;
   }
 
-  private doServe(cmd: SwingCmd): void {
+  private doServe(): void {
     const sv = this.score.server;
-    const s = sideOf(sv);
+    // 立ち位置の拘束と照準を打った瞬間の状態に更新（マーカーの位置に落ちる）
+    this.updateServeAim();
     const pl = this.players[sv];
+    const aim = this.serveAim as ServeAim;
     const from = { x: pl.x, y: 2.75, z: pl.z };
-    // 対角のサービスボックスへ（x 符号はサーバー位置の反対側）
-    this.serveBoxXSign = -Math.sign(pl.x || 1);
-    const lateral = clamp(1.6 + cmd.aim * this.serveBoxXSign * s * 1.6 + Math.random() * 1.2, 0.7, 3.7);
-    const tx = this.serveBoxXSign * lateral;
-    const tz = -s * clamp(2.6 + Math.random() * 3.2, 1.4, COURT.SERVICE_LINE - 0.4);
-    const speedT = this.serveNum === 1 ? 0.62 : 0.75; // セカンドは安全に
-    const v = shotWithClearance(from, tx, tz, speedT, this.serveNum === 1 ? 0.18 : 0.45);
+    // パワーが高いほど速く・ネットすれすれの弾道になる
+    const t0 = SERVE.T_SLOW - (SERVE.T_SLOW - SERVE.T_FAST) * aim.power;
+    const margin = 0.5 - 0.42 * aim.power;
+    const v = shotAtLanding(from, aim.x, aim.z, t0, margin);
     this.ball.set(from, v);
+    this.serveAim = null;
     this.serving = true;
     this.lastHitter = sv;
     this.bouncesSinceHit = 0;
@@ -210,9 +256,10 @@ export class HostSim {
     }
 
     if (this.phase === 'await-serve') {
-      // サーバーがベースライン沿いに動いたらトス位置も追従
-      const sv = this.score.server;
-      this.ball.p.x = this.players[sv].x;
+      // 立ち位置拘束＋照準スイープ。トス位置はサーバーに追従
+      this.serveT += dt;
+      this.updateServeAim();
+      this.ball.p.x = this.players[this.score.server].x;
       return;
     }
 

@@ -23,9 +23,11 @@ export class AiController {
       this.planned = false;
       if (sim.score.server === AI_INDEX) {
         this.serveTimer += dt;
-        if (this.serveTimer > 1.2) {
+        // 照準マーカーがほどよいパワーのタイミングを待って打つ
+        const aim = sim.serveAim;
+        if (this.serveTimer > 0.7 && aim && aim.power > 0.45 && aim.power < 0.8) {
           this.serveTimer = 0;
-          sim.trySwing(AI_INDEX, { kind: 'drive', aim: (Math.random() * 2 - 1) * 0.7 });
+          sim.trySwing(AI_INDEX, { kind: 'drive', aim: 0 });
         }
       }
       return;

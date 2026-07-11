@@ -7,16 +7,31 @@
  */
 import { Game } from '../game/Game';
 import { ClientNet, HostNet, randomCode } from '../net/peer';
-import type { ClientMsg, HostMsg, MemberInfo, RouletteKind, Score, Snapshot } from '../net/protocol';
+import type {
+  BettingState,
+  ClientMsg,
+  HostMsg,
+  MemberInfo,
+  RouletteKind,
+  Score,
+  Snapshot,
+} from '../net/protocol';
 import { RouletteView } from '../ui/roulette';
 import { addResult, adjustPoints, getStats, resetPoints } from './storage';
 
 const $ = (id: string): HTMLElement => document.getElementById(id) as HTMLElement;
 
 const WIN_PTS = 100;
+/** サドンデス（1ポイント勝負）の勝利ボーナスは控えめに */
+const SD_WIN_PTS = 30;
 const PTS_PER_GAME = 20;
 /** ルーレット重みのベース。0pt でも極端になりすぎないための下駄 */
 const WEIGHT_BASE = 50;
+
+/** 対戦者が選べる賭け額 */
+const BET_CHIPS = [0, 10, 30, 50, 100];
+/** 観戦者が予想に賭けられる額 */
+const PREDICT_CHIPS = [10, 30, 50, 100];
 
 function renderLobby(
   members: MemberInfo[],
@@ -74,8 +89,110 @@ function showLobbyScreen(visible: boolean): void {
   $('lobby').hidden = !visible;
 }
 
-function rouletteEntriesFor(
-  members: MemberInfo[],
+// ---------------------------------------- ベット/観戦予想パネル
+
+interface BetUiCtx {
+  myId: string;
+  isHost: boolean;
+  /** チップの上限（持ちポイント） */
+  myPts: number;
+  onBet: (amount: number) => void;
+  onPredict: (target: 0 | 1, amount: number) => void;
+  onStart?: () => void;
+  onCancel?: () => void;
+}
+
+/** 観戦予想のローカル選択状態（ハイライト用。確定値はホスト権威） */
+let localPredict: { target: 0 | 1 | null; amount: number | null } = { target: null, amount: null };
+let bettingKey = '';
+
+function renderBetPanel(st: BettingState | null, ctx?: BetUiCtx): void {
+  const panel = $('bet-panel');
+  if (!st || !ctx) {
+    panel.hidden = true;
+    return;
+  }
+  // 新しいベットが開いたら予想の選択状態をリセット
+  const key = st.ids.join('|');
+  if (key !== bettingKey) {
+    bettingKey = key;
+    localPredict = { target: null, amount: null };
+  }
+  panel.hidden = false;
+  // ベット受付中はロビーの通常操作を隠す
+  $('lobby-host-controls').hidden = true;
+  $('lobby-guest-hint').hidden = true;
+
+  const modeLabel = st.gamesToWin === 0 ? '1ポイント勝負' : `${st.gamesToWin}ゲーム先取`;
+  $('bet-matchup').textContent = `${st.names[0]} 🆚 ${st.names[1]}（${modeLabel}）`;
+
+  const meIdx = st.ids.indexOf(ctx.myId);
+  const isPlayer = meIdx === 0 || meIdx === 1;
+  $('bet-my').hidden = !isPlayer;
+  $('bet-predict').hidden = isPlayer;
+
+  if (isPlayer) {
+    const chips = $('bet-chips');
+    chips.innerHTML = '';
+    for (const a of BET_CHIPS) {
+      const b = document.createElement('button');
+      b.className = 'chip' + (st.stakes[meIdx] === a ? ' sel' : '');
+      b.textContent = `${a}pt`;
+      b.disabled = a > ctx.myPts;
+      b.onclick = () => ctx.onBet(a);
+      chips.appendChild(b);
+    }
+  } else {
+    const p0 = $('predict-p0') as HTMLButtonElement;
+    const p1 = $('predict-p1') as HTMLButtonElement;
+    p0.textContent = `🎾 ${st.names[0]}`;
+    p1.textContent = `🎾 ${st.names[1]}`;
+    p0.className = 'btn' + (localPredict.target === 0 ? ' sel' : '');
+    p1.className = 'btn' + (localPredict.target === 1 ? ' sel' : '');
+    const pick = (t: 0 | 1): void => {
+      localPredict.target = t;
+      if (localPredict.amount !== null) ctx.onPredict(t, localPredict.amount);
+      else renderBetPanel(st, ctx); // 選択ハイライトだけ更新
+    };
+    p0.onclick = () => pick(0);
+    p1.onclick = () => pick(1);
+    const chips = $('predict-chips');
+    chips.innerHTML = '';
+    for (const a of PREDICT_CHIPS) {
+      const b = document.createElement('button');
+      b.className = 'chip' + (localPredict.amount === a ? ' sel' : '');
+      b.textContent = `${a}pt`;
+      b.disabled = a > ctx.myPts || localPredict.target === null;
+      b.onclick = () => {
+        localPredict.amount = a;
+        ctx.onPredict(localPredict.target as 0 | 1, a);
+      };
+      chips.appendChild(b);
+    }
+  }
+
+  // 状況表示
+  const [s0, s1] = st.stakes;
+  $('bet-stake-line').textContent =
+    s0 !== null && s1 !== null ? `💰 賭け金 ${Math.min(s0, s1)}pt — 勝者総取り！` : '両者の賭け待ち…';
+  const stakeMarks = st.names.map((n, i) => `${n} ${st.stakes[i] === null ? '…' : '✓'}`);
+  const predTxt = st.predictions.length
+    ? `　予想: ${st.predictions.map((p) => `${p.name}→${st.names[p.target]} ${p.amount}pt`).join(' / ')}`
+    : '';
+  $('bet-status').textContent = `賭け: ${stakeMarks.join(' ／ ')}${predTxt}`;
+
+  $('bet-host-controls').hidden = !ctx.isHost;
+  if (ctx.isHost) {
+    const startBtn = $('btn-bet-start') as HTMLButtonElement;
+    startBtn.disabled = s0 === null || s1 === null;
+    startBtn.onclick = () => ctx.onStart?.();
+    ($('btn-bet-cancel') as HTMLButtonElement).onclick = () => ctx.onCancel?.();
+  }
+}
+
+/** ポイント量から重み付き抽選のエントリと当選者を作る（単独ルーレットでも使用） */
+export function rouletteEntriesFor(
+  members: { name: string; pts: number }[],
   kind: RouletteKind,
 ): { entries: { name: string; pct: number }[]; winner: number } {
   const weights = members.map((m) =>
@@ -109,6 +226,14 @@ export class PartyHost {
   private banner = 'メンバーの参加を待っています';
   private destroyed = false;
 
+  // ベット/観戦予想（ホスト権威）
+  private betting: BettingState | null = null;
+  /** ベット中止時にローテーションへ戻す id（先頭に戻す順） */
+  private bettingRestore: string[] = [];
+  private readonly predictionsById = new Map<string, { target: 0 | 1; amount: number }>();
+  private currentStake = 0;
+  private currentGamesToWin = 2;
+
   private readonly group: string;
 
   /** ルームが閉じた（エラー含む）ときにメニューへ戻すためのフック */
@@ -132,7 +257,7 @@ export class PartyHost {
     this.net.start(this.code, () => this.refreshLobby());
 
     // ホスト操作（onclick 代入なのでリスナーは重複しない）
-    ($('btn-start-match') as HTMLButtonElement).onclick = () => this.startMatch();
+    ($('btn-start-match') as HTMLButtonElement).onclick = () => this.openBetting();
     ($('btn-roulette-penalty') as HTMLButtonElement).onclick = () => this.spinRoulette('penalty');
     ($('btn-roulette-reward') as HTMLButtonElement).onclick = () => this.spinRoulette('reward');
     ($('btn-reset-pts') as HTMLButtonElement).onclick = () => this.resetAllPoints();
@@ -147,7 +272,8 @@ export class PartyHost {
   }
 
   private gamesToWin(): number {
-    return Number(($('games-select') as HTMLSelectElement).value) || 2;
+    const v = Number(($('games-select') as HTMLSelectElement).value);
+    return Number.isFinite(v) && v >= 0 ? v : 2;
   }
 
   private lobbyMsg(): HostMsg {
@@ -170,6 +296,9 @@ export class PartyHost {
       isHost: true,
       onAdjust: (name, delta) => this.adjust(name, delta),
     });
+    // ベット中は renderLobby が戻したホスト操作を再び隠してパネルを出す
+    if (this.betting) this.renderBet();
+    else renderBetPanel(null);
     this.net.broadcast(this.lobbyMsg());
   }
 
@@ -185,6 +314,14 @@ export class PartyHost {
   private onData(id: string, m: ClientMsg): void {
     if (m.t === 'hello') {
       this.addMember(id, m.name);
+      return;
+    }
+    if (m.t === 'bet') {
+      this.setBet(id, m.amount);
+      return;
+    }
+    if (m.t === 'predict') {
+      this.setPredict(id, m.target, m.amount);
       return;
     }
     // 対戦中クライアントの入力を該当プレイヤーへ
@@ -206,6 +343,8 @@ export class PartyHost {
     this.rotation.push(id);
     this.banner = `${name} さんが参加しました`;
     this.refreshLobby();
+    // ベット受付中に入ってきたら予想に参加してもらう
+    if (this.betting) this.net.send(id, { t: 'betting', st: this.betting });
     // 試合中に入ってきたら観戦してもらう
     if (this.game && this.currentIds) {
       const p0 = this.members.get(this.currentIds[0]);
@@ -215,7 +354,7 @@ export class PartyHost {
           t: 'match',
           ids: this.currentIds,
           names: [p0.name, p1.name],
-          gamesToWin: this.gamesToWin(),
+          gamesToWin: this.currentGamesToWin,
         });
       }
     }
@@ -229,6 +368,15 @@ export class PartyHost {
     if (this.championId === id) this.championId = null;
     this.banner = `${m.name} さんが退出しました`;
 
+    // ベット中の退出: 対戦者ならベット中止、予想者なら予想を取り消す
+    if (this.betting) {
+      if (this.betting.ids.includes(id)) {
+        this.cancelBetting(`${m.name} さんが退出したためベットを中止しました`);
+      } else if (this.predictionsById.delete(id)) {
+        this.syncPredictions();
+      }
+    }
+
     // 対戦中のプレイヤーが落ちたら試合中止
     if (this.currentIds?.includes(id)) {
       const otherId = this.currentIds[0] === id ? this.currentIds[1] : this.currentIds[0];
@@ -241,29 +389,124 @@ export class PartyHost {
     this.refreshLobby();
   }
 
-  // ---------- 試合 ----------
+  // ---------- ベット受付 ----------
 
-  private startMatch(): void {
-    if (this.game || this.members.size < 2) return;
+  /** 対戦カードを決めてベット/観戦予想の受付を開く */
+  private openBetting(): void {
+    if (this.game || this.betting || this.members.size < 2) return;
     // 勝ち残り: チャンピオンが p0、挑戦者はローテーションの先頭
     let p0Id: string;
+    let fromRotation = false;
     if (this.championId && this.members.has(this.championId)) {
       p0Id = this.championId;
     } else {
       p0Id = this.rotation.shift() as string;
+      fromRotation = true;
     }
     this.rotation = this.rotation.filter((x) => x !== p0Id);
     const p1Id = this.rotation.shift();
     if (!p1Id) {
-      this.rotation.unshift(p0Id);
+      if (fromRotation) this.rotation.unshift(p0Id);
       return;
     }
-    this.currentIds = [p0Id, p1Id];
-    const names: [string, string] = [
-      (this.members.get(p0Id) as MemberInfo).name,
-      (this.members.get(p1Id) as MemberInfo).name,
-    ];
-    const gamesToWin = this.gamesToWin();
+    this.bettingRestore = fromRotation ? [p0Id, p1Id] : [p1Id];
+    this.predictionsById.clear();
+    this.currentGamesToWin = this.gamesToWin();
+    this.betting = {
+      ids: [p0Id, p1Id],
+      names: [
+        (this.members.get(p0Id) as MemberInfo).name,
+        (this.members.get(p1Id) as MemberInfo).name,
+      ],
+      gamesToWin: this.currentGamesToWin,
+      stakes: [null, null],
+      predictions: [],
+    };
+    this.banner = '対戦前ベット受付中！';
+    this.refreshLobby();
+    this.refreshBetting();
+  }
+
+  private renderBet(): void {
+    const my = this.members.get('host');
+    renderBetPanel(this.betting, {
+      myId: 'host',
+      isHost: true,
+      myPts: my ? my.pts : 0,
+      onBet: (a) => this.setBet('host', a),
+      onPredict: (t, a) => this.setPredict('host', t, a),
+      onStart: () => this.launchMatch(),
+      onCancel: () => this.cancelBetting('ベットを中止しました'),
+    });
+  }
+
+  private refreshBetting(): void {
+    this.renderBet();
+    this.net.broadcast({ t: 'betting', st: this.betting });
+  }
+
+  private setBet(id: string, amount: number): void {
+    const bt = this.betting;
+    if (!bt) return;
+    const idx = bt.ids.indexOf(id);
+    if (idx !== 0 && idx !== 1) return;
+    const m = this.members.get(id);
+    if (!m) return;
+    bt.stakes[idx] = Math.max(0, Math.min(Math.round(amount), m.pts));
+    this.refreshBetting();
+  }
+
+  private setPredict(id: string, target: 0 | 1, amount: number): void {
+    const bt = this.betting;
+    if (!bt || bt.ids.includes(id) || (target !== 0 && target !== 1)) return;
+    const m = this.members.get(id);
+    if (!m) return;
+    this.predictionsById.set(id, {
+      target,
+      amount: Math.max(0, Math.min(Math.round(amount), m.pts)),
+    });
+    this.syncPredictions();
+  }
+
+  private syncPredictions(): void {
+    if (!this.betting) return;
+    this.betting.predictions = [...this.predictionsById.entries()]
+      .filter(([pid]) => this.members.has(pid))
+      .map(([pid, p]) => ({
+        name: (this.members.get(pid) as MemberInfo).name,
+        target: p.target,
+        amount: p.amount,
+      }));
+    this.refreshBetting();
+  }
+
+  private cancelBetting(msg: string): void {
+    if (!this.betting) return;
+    this.rotation.unshift(...this.bettingRestore);
+    this.bettingRestore = [];
+    this.betting = null;
+    this.predictionsById.clear();
+    this.banner = msg;
+    this.net.broadcast({ t: 'betting', st: null });
+    this.refreshLobby();
+  }
+
+  // ---------- 試合 ----------
+
+  /** 両者の賭けが揃ったら試合開始（賭け金は低い方に揃える） */
+  private launchMatch(): void {
+    const bt = this.betting;
+    if (!bt || this.game) return;
+    const [s0, s1] = bt.stakes;
+    if (s0 === null || s1 === null) return;
+    this.currentStake = Math.min(s0, s1);
+    this.currentIds = bt.ids;
+    const names = bt.names;
+    const gamesToWin = bt.gamesToWin;
+    this.betting = null;
+    this.bettingRestore = [];
+    renderBetPanel(null);
+    this.net.broadcast({ t: 'betting', st: null });
     this.net.broadcast({ t: 'match', ids: this.currentIds, names, gamesToWin });
 
     showLobbyScreen(false);
@@ -289,15 +532,35 @@ export class PartyHost {
     const winner = this.members.get(winnerId);
     const loser = this.members.get(loserId);
     if (winner && loser) {
+      const winPts = this.currentGamesToWin === 0 ? SD_WIN_PTS : WIN_PTS;
       const loserGames = score.games[(1 - winnerIdx) as 0 | 1];
-      const loserPts = loserGames * PTS_PER_GAME;
+      const stake = this.currentStake;
+      const winnerDelta = winPts + stake;
+      const loserDelta = loserGames * PTS_PER_GAME - stake;
       // 過去データとして永続保存（グループ×名前キー）し、メモリ上へ反映
-      Object.assign(winner, { id: winnerId }, addResult(this.group, winner.name, WIN_PTS, true));
-      Object.assign(loser, { id: loserId }, addResult(this.group, loser.name, loserPts, false));
-      this.banner = `🏆 ${winner.name} の勝ち！ +${WIN_PTS}pt ／ ${loser.name} +${loserPts}pt`;
+      Object.assign(winner, { id: winnerId }, addResult(this.group, winner.name, winnerDelta, true));
+      Object.assign(loser, { id: loserId }, addResult(this.group, loser.name, loserDelta, false));
+      let banner =
+        `🏆 ${winner.name} の勝ち！ +${winnerDelta}pt ／ ` +
+        `${loser.name} ${loserDelta >= 0 ? '+' : ''}${loserDelta}pt` +
+        (stake > 0 ? `（賭け金 ${stake}pt）` : '');
+      // 観戦予想の清算（的中で同額獲得、外れで没収）
+      const settled: string[] = [];
+      for (const [pid, p] of this.predictionsById) {
+        const pm = this.members.get(pid);
+        if (!pm || p.amount <= 0) continue;
+        const hit = this.currentIds[p.target] === winnerId;
+        const delta = hit ? p.amount : -p.amount;
+        Object.assign(pm, { id: pid }, adjustPoints(this.group, pm.name, delta));
+        settled.push(`${hit ? '🎯' : '💧'}${pm.name}${delta >= 0 ? '+' : ''}${delta}`);
+      }
+      if (settled.length) banner += ` ／ 予想: ${settled.join(' ')}`;
+      this.banner = banner;
       this.championId = winnerId;
       this.rotation.push(loserId);
     }
+    this.currentStake = 0;
+    this.predictionsById.clear();
     // 決着の余韻を見せてからロビーへ
     window.setTimeout(() => this.endMatch(), 2000);
   }
@@ -313,13 +576,15 @@ export class PartyHost {
     this.game?.dispose();
     this.game = null;
     this.currentIds = null;
+    this.currentStake = 0;
+    this.predictionsById.clear();
     showLobbyScreen(true);
   }
 
   // ---------- ルーレット / ポイント ----------
 
   private spinRoulette(kind: RouletteKind): void {
-    if (this.game || this.members.size < 2) return; // 対戦相手がいるロビーでのみ
+    if (this.game || this.betting || this.members.size < 2) return; // 対戦相手がいるロビーでのみ
     const list = this.memberList;
     const { entries, winner } = rouletteEntriesFor(list, kind);
     this.net.broadcast({ t: 'roulette', kind, entries, winner });
@@ -337,6 +602,8 @@ export class PartyHost {
     this.destroyed = true;
     this.game?.dispose();
     this.game = null;
+    this.betting = null;
+    renderBetPanel(null);
     this.roulette.hide();
     showLobbyScreen(false);
     this.net.destroy();
@@ -351,6 +618,8 @@ export class PartyClient {
   private game: Game | null = null;
   private joined = false;
   private destroyed = false;
+  private lastMembers: MemberInfo[] = [];
+  private lastBetting: BettingState | null = null;
 
   onEnd: (message?: string) => void = () => {};
   /** 最初のロビー受信（=入室成功）で呼ばれる */
@@ -385,16 +654,28 @@ export class PartyClient {
       // ロビー表示 = 試合終了の合図でもある
       this.game?.dispose();
       this.game = null;
+      this.lastMembers = m.members;
       renderLobby(m.members, m.championId, {
         code: m.code,
         group: m.group,
         banner: m.banner,
         isHost: false,
       });
+      // ロビー再描画がベットパネルの表示状態を巻き戻すことがあるため復元
+      renderBetPanel(this.lastBetting, this.betCtx());
       showLobbyScreen(true);
       return;
     }
+    if (m.t === 'betting') {
+      this.lastBetting = m.st;
+      renderBetPanel(m.st, this.betCtx());
+      // ベット終了時はロビーの通常表示（ゲスト向けヒント）へ戻す
+      if (!m.st) $('lobby-guest-hint').hidden = false;
+      return;
+    }
     if (m.t === 'match') {
+      this.lastBetting = null;
+      renderBetPanel(null);
       showLobbyScreen(false);
       this.game?.dispose();
       const idx = m.ids.indexOf(this.net.myId);
@@ -416,11 +697,24 @@ export class PartyClient {
     }
   }
 
+  private betCtx(): BetUiCtx {
+    const me = this.lastMembers.find((mm) => mm.id === this.net.myId);
+    return {
+      myId: this.net.myId,
+      isHost: false,
+      myPts: me ? me.pts : 0,
+      onBet: (amount) => this.net.send({ t: 'bet', amount }),
+      onPredict: (target, amount) => this.net.send({ t: 'predict', target, amount }),
+    };
+  }
+
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
     this.game?.dispose();
     this.game = null;
+    this.lastBetting = null;
+    renderBetPanel(null);
     this.roulette.hide();
     showLobbyScreen(false);
     this.net.destroy();

@@ -9,6 +9,14 @@ export function newScore(server: 0 | 1): Score {
 
 export function addPoint(sc: Score, w: 0 | 1, gamesToWin: number): void {
   if (sc.finished) return;
+  // gamesToWin=0 はサドンデス: 1ポイント先取で即決着
+  if (gamesToWin === 0) {
+    sc.points[w]++;
+    sc.games[w]++;
+    sc.finished = true;
+    sc.winner = w;
+    return;
+  }
   sc.points[w]++;
   const [a, b] = sc.points;
   const lead = Math.abs(a - b);
