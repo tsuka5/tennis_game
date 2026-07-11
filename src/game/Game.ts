@@ -296,38 +296,23 @@ export class Game {
     this.returnAimView.update(dt, preview, previewOut ? 0xff5050 : undefined);
   }
 
-  /** Tennis Clash 式の自動移動: 着地予測へ走り、それ以外はセンターへ戻る */
+  /** 手動移動（スティック/WASD）。サーブ待ちのサーバーはベースライン上に拘束 */
   private moveSelf(dt: number): void {
     if (this.playerIdx === null || !this.controls) return;
+    const inp = this.controls.state;
+    // 自分視点 → ワールド座標（右 = x * s, 前 = -z * s）
+    this.meX += inp.x * this.s * PLAY.SPEED * dt;
+    this.meZ += -inp.y * this.s * PLAY.SPEED * dt;
+    this.meX = clamp(this.meX, -PLAY.BOUND_X, PLAY.BOUND_X);
+    if (this.s > 0) this.meZ = clamp(this.meZ, PLAY.BOUND_Z_NEAR, PLAY.BOUND_Z_FAR);
+    else this.meZ = clamp(this.meZ, -PLAY.BOUND_Z_FAR, -PLAY.BOUND_Z_NEAR);
+
     const ph = this.sim ? this.sim.phase : this.clientPhase;
     const sc = this.sim ? this.sim.score : this.lastScore;
-
-    // サーブ待ちは配置固定（サーバーはベースライン上に拘束）
-    if (ph === 'await-serve') {
-      if (sc && sc.server === this.playerIdx) {
-        const stand = serveStand(this.playerIdx, sc.points);
-        this.meX = clamp(this.meX, stand.x0, stand.x1);
-        this.meZ = stand.z;
-      }
-      return;
-    }
-    if (ph !== 'rally') return;
-
-    const homeZ = this.s * (COURT.HALF_L - 0.4);
-    let tx = 0;
-    let tz = homeZ;
-    if (this.landTarget && Math.sign(this.landTarget.z) === this.s) {
-      // 自陣に落ちるボールへ: 落下点の少し後ろに構える
-      tx = clamp(this.landTarget.x, -PLAY.BOUND_X, PLAY.BOUND_X);
-      tz = this.s * clamp(Math.abs(this.landTarget.z) + 0.9, PLAY.BOUND_Z_NEAR, PLAY.BOUND_Z_FAR);
-    }
-    const dx = tx - this.meX;
-    const dz = tz - this.meZ;
-    const d = Math.hypot(dx, dz);
-    if (d > 0.05) {
-      const step = Math.min(d, PLAY.SPEED * dt);
-      this.meX += (dx / d) * step;
-      this.meZ += (dz / d) * step;
+    if (ph === 'await-serve' && sc && sc.server === this.playerIdx) {
+      const stand = serveStand(this.playerIdx, sc.points);
+      this.meX = clamp(this.meX, stand.x0, stand.x1);
+      this.meZ = stand.z;
     }
   }
 

@@ -199,12 +199,13 @@
       <div class="help-card">
         <h2 class="help-title">あそびかた</h2>
         <div class="help-body">
-          <p class="help-sec">🎾 操作（移動は自動！）</p>
+          <p class="help-sec">🎾 操作</p>
           <ul>
-            <li>画面を引っ張って離すと、その<b>延長線上</b>にボールが飛ぶ</li>
-            <li>強く引くほど速く・深く。引きすぎ・広すぎは<b>アウト</b>（リングが赤なら危険）</li>
-            <li>ゆっくり長く引くと<b>ロブ</b>、タップでふんわり返球</li>
-            <li>サーブは動くリングが着地点。<b>深い（赤い）ほど速い</b>。良いタイミングで引っ張ろう</li>
+            <li>移動: 画面<b>左半分</b>のスティック（PC は WASD / 矢印）</li>
+            <li>打つ: 画面<b>右半分をフリック</b>（PC はマウス）。フリックの<b>延長線上</b>にボールが飛ぶ</li>
+            <li>速く長くフリックするほど強い。強すぎ・広すぎは<b>アウト</b>（リングが赤なら危険）</li>
+            <li>ゆっくり長くなぞると<b>ロブ</b>、タップでふんわり返球</li>
+            <li>サーブは動くリングが着地点。<b>深い（赤い）ほど速い</b>。良いタイミングでフリック！</li>
           </ul>
           <p class="help-sec">💰 ポイント</p>
           <ul>
@@ -241,15 +242,20 @@
         </div>
       </div>
 
-      <!-- スワイプ入力（画面全体。ボタン類はこの上に重ねる） -->
+      <!-- フリック入力（PC は全画面、スマホは右半分） -->
       <div id="swipe-zone"></div>
+      <!-- バーチャルスティック（スマホの左半分） -->
+      <div id="joy-zone"></div>
+      <div id="joy-base" hidden><div id="joy-knob"></div></div>
+      <!-- フリック軌跡の残像 -->
+      <canvas id="flick-canvas"></canvas>
 
       <div id="msg"></div>
       <div id="spectating" hidden>👀 観戦中</div>
-      <div id="serve-hint" hidden>スワイプでサーブ！ リングの位置に落ちます — 深いほど速い</div>
+      <div id="serve-hint" hidden>フリックでサーブ！ リングの位置に落ちます — 深いほど速い</div>
       <div id="serve-meter" hidden><div id="serve-meter-fill"></div></div>
       <div id="kbd-hint">
-        画面を引っ張って打つ（移動は自動）: ボールは引っ張った延長線上へ／強く引くほど速く遠く（アウト注意）／ゆっくり = ロブ
+        移動: WASD / 矢印　　打つ: マウスでフリック — 軌道の延長線上へ飛ぶ／速く長いほど強い（アウト注意）／ゆっくり = ロブ
       </div>
 
       <button id="btn-quit" title="メニューへ戻る">✕</button>

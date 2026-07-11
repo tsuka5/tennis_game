@@ -1,39 +1,59 @@
 /**
- * 引っ張り式の入力: 移動は自動（Game 側）、打球は画面のどこでも
- * ドラッグ（引っ張り）。ボールは引っ張った方向の延長線上に飛び、
- * 強く（長く）引くほど速く・遠くへ（アウトもあり得る）。
- * ゆっくり長いドラッグ = ロブ。タップ = ふんわり返球/サーブ。
- * キーボード: スペース/Z = ショット、X = ロブ、A/D = コース。
+ * 入力:
+ * - 移動は手動。スマホ = 左半分のバーチャルスティック、PC = WASD/矢印
+ * - 打球はフリック（スマホ = 右半分、PC = マウスドラッグ）。
+ *   フリックの向きの延長線上へ飛び、速く長いほど強い。ゆっくり = ロブ
+ * - フリックの軌道は光る線として画面に残り、フェードして消える
  */
 import type { ShotKind } from '../net/protocol';
 
+const JOY_RADIUS = 60;
+const JOY_DEADZONE = 8;
 /** これ未満の移動量(px)はタップ扱い */
 const TAP_PX = 24;
-/** これより遅いドラッグ(px/s)はロブ */
+/** これより遅いフリック(px/s)はロブ */
 const LOB_SPEED = 330;
+/** フリック軌跡が消えるまでの時間 (ms) */
+const TRAIL_LIFE = 950;
 
 export interface SwipeShot {
   kind: ShotKind;
-  /** 引っ張り方向（自分視点。右+） */
+  /** フリック方向（自分視点。右+） */
   dirX: number;
-  /** 引っ張り方向（自分視点。前=ネット方向+） */
+  /** フリック方向（自分視点。前=ネット方向+） */
   dirY: number;
   /** 強さ 0..1 */
   power: number;
 }
 
 export class Controls {
+  /** 自分視点の移動入力 (-1..1) */
+  state = { x: 0, y: 0 };
   onShot: (shot: SwipeShot) => void = () => {};
-  /** 引っ張り中のライブ状態（返球プレビューマーカー用） */
+  /** フリック中のライブ状態（返球プレビューマーカー用） */
   live = { active: false, dirX: 0, dirY: 1, power: 0 };
-  /** A/D・←→ キーによるコース（キーボード派のフォールバック） */
-  keyAim = 0;
 
-  private pointer: number | null = null;
-  private start = { x: 0, y: 0, t: 0 };
   private readonly keys = new Set<string>();
+  private keysVec = { x: 0, y: 0 };
 
-  private readonly zone = document.getElementById('swipe-zone') as HTMLElement;
+  // バーチャルスティック
+  private joyPointer: number | null = null;
+  private joyOrigin = { x: 0, y: 0 };
+  private joyVec = { x: 0, y: 0 };
+
+  // フリック
+  private flickPointer: number | null = null;
+  private start = { x: 0, y: 0, t: 0 };
+  private trail: { x: number; y: number; t: number }[] = [];
+  private trailRaf = 0;
+
+  private readonly joyZone = document.getElementById('joy-zone') as HTMLElement;
+  private readonly joyBase = document.getElementById('joy-base') as HTMLElement;
+  private readonly joyKnob = document.getElementById('joy-knob') as HTMLElement;
+  private readonly flickZone = document.getElementById('swipe-zone') as HTMLElement;
+  private readonly trailCanvas = document.getElementById('flick-canvas') as HTMLCanvasElement;
+
+  // ---------- キーボード ----------
 
   private readonly onKeyDown = (e: KeyboardEvent): void => {
     if (e.repeat) {
@@ -43,52 +63,120 @@ export class Controls {
     this.keys.add(e.code);
     if (e.code === 'Space' || e.code === 'KeyZ') {
       e.preventDefault();
-      this.onShot({ kind: 'drive', dirX: this.keyAim * 0.55, dirY: 1, power: 0.7 });
+      this.onShot({ kind: 'drive', dirX: this.state.x * 0.55, dirY: 1, power: 0.7 });
     } else if (e.code === 'KeyX' || e.code === 'ShiftLeft') {
-      this.onShot({ kind: 'lob', dirX: this.keyAim * 0.55, dirY: 1, power: 0.7 });
+      this.onShot({ kind: 'lob', dirX: this.state.x * 0.55, dirY: 1, power: 0.7 });
     }
-    this.updateKeyAim();
+    this.updateKeyboard();
   };
 
   private readonly onKeyUp = (e: KeyboardEvent): void => {
     this.keys.delete(e.code);
-    this.updateKeyAim();
+    this.updateKeyboard();
   };
 
-  private updateKeyAim(): void {
+  private updateKeyboard(): void {
+    const k = this.keys;
     let x = 0;
-    if (this.keys.has('KeyA') || this.keys.has('ArrowLeft')) x -= 1;
-    if (this.keys.has('KeyD') || this.keys.has('ArrowRight')) x += 1;
-    this.keyAim = x;
+    let y = 0;
+    if (k.has('KeyA') || k.has('ArrowLeft')) x -= 1;
+    if (k.has('KeyD') || k.has('ArrowRight')) x += 1;
+    if (k.has('KeyW') || k.has('ArrowUp')) y += 1;
+    if (k.has('KeyS') || k.has('ArrowDown')) y -= 1;
+    const len = Math.hypot(x, y);
+    this.keysVec = len > 1 ? { x: x / len, y: y / len } : { x, y };
+    this.apply();
   }
 
-  /** 引っ張りベクトル(px) → 方向と強さ。画面上方向 = 前（ネット方向） */
+  private apply(): void {
+    // スティック優先、なければキーボード
+    if (this.joyPointer !== null) this.state = { ...this.joyVec };
+    else this.state = { ...this.keysVec };
+  }
+
+  // ---------- バーチャルスティック（移動） ----------
+
+  private readonly onJoyDown = (e: PointerEvent): void => {
+    if (this.joyPointer !== null) return;
+    this.joyPointer = e.pointerId;
+    this.joyOrigin = { x: e.clientX, y: e.clientY };
+    this.joyVec = { x: 0, y: 0 };
+    this.joyBase.hidden = false;
+    this.joyBase.style.left = `${e.clientX}px`;
+    this.joyBase.style.top = `${e.clientY}px`;
+    this.setKnob(0, 0);
+    this.joyZone.setPointerCapture(e.pointerId);
+  };
+
+  private readonly onJoyMove = (e: PointerEvent): void => {
+    if (e.pointerId !== this.joyPointer) return;
+    let dx = e.clientX - this.joyOrigin.x;
+    let dy = e.clientY - this.joyOrigin.y;
+    const len = Math.hypot(dx, dy);
+    if (len < JOY_DEADZONE) {
+      this.joyVec = { x: 0, y: 0 };
+    } else {
+      const clamped = Math.min(len, JOY_RADIUS);
+      dx = (dx / len) * clamped;
+      dy = (dy / len) * clamped;
+      // 画面の上方向 = ネット方向(+y)
+      this.joyVec = { x: dx / JOY_RADIUS, y: -dy / JOY_RADIUS };
+    }
+    this.setKnob(dx, dy);
+    this.apply();
+  };
+
+  private readonly onJoyUp = (e: PointerEvent): void => {
+    if (e.pointerId !== this.joyPointer) return;
+    this.joyPointer = null;
+    this.joyVec = { x: 0, y: 0 };
+    this.joyBase.hidden = true;
+    this.apply();
+  };
+
+  private setKnob(dx: number, dy: number): void {
+    const l = Math.hypot(dx, dy);
+    const c = Math.min(l, JOY_RADIUS);
+    const ux = l > 0 ? dx / l : 0;
+    const uy = l > 0 ? dy / l : 0;
+    this.joyKnob.style.transform = `translate(${ux * c}px, ${uy * c}px)`;
+  }
+
+  // ---------- フリック（打球） ----------
+
+  /** フリックベクトル(px) → 方向と強さ。画面上方向 = 前（ネット方向） */
   private metrics(dx: number, dyDown: number): { dirX: number; dirY: number; power: number } {
     const len = Math.hypot(dx, dyDown);
     const power = Math.max(
       0.1,
-      Math.min(1, len / (Math.min(window.innerWidth, window.innerHeight) * 0.45)),
+      Math.min(1, len / (Math.min(window.innerWidth, window.innerHeight) * 0.34)),
     );
     return { dirX: dx, dirY: -dyDown, power };
   }
 
-  private readonly onDown = (e: PointerEvent): void => {
-    if (this.pointer !== null) return;
-    this.pointer = e.pointerId;
+  private readonly onFlickDown = (e: PointerEvent): void => {
+    if (this.flickPointer !== null) return;
+    this.flickPointer = e.pointerId;
     this.start = { x: e.clientX, y: e.clientY, t: performance.now() };
+    this.trail.push({ x: e.clientX, y: e.clientY, t: performance.now() });
     this.live = { active: true, dirX: 0, dirY: 1, power: 0.1 };
-    this.zone.setPointerCapture(e.pointerId);
+    this.flickZone.setPointerCapture(e.pointerId);
+    this.ensureTrailLoop();
   };
 
-  private readonly onMove = (e: PointerEvent): void => {
-    if (e.pointerId !== this.pointer) return;
+  private readonly onFlickMove = (e: PointerEvent): void => {
+    if (e.pointerId !== this.flickPointer) return;
+    const last = this.trail[this.trail.length - 1];
+    if (!last || Math.hypot(e.clientX - last.x, e.clientY - last.y) > 3) {
+      this.trail.push({ x: e.clientX, y: e.clientY, t: performance.now() });
+    }
     const m = this.metrics(e.clientX - this.start.x, e.clientY - this.start.y);
     this.live = { active: true, ...m };
   };
 
-  private readonly onUp = (e: PointerEvent): void => {
-    if (e.pointerId !== this.pointer) return;
-    this.pointer = null;
+  private readonly onFlickUp = (e: PointerEvent): void => {
+    if (e.pointerId !== this.flickPointer) return;
+    this.flickPointer = null;
     this.live = { active: false, dirX: 0, dirY: 1, power: 0 };
     const dx = e.clientX - this.start.x;
     const dy = e.clientY - this.start.y;
@@ -104,21 +192,83 @@ export class Controls {
     this.onShot({ kind, ...m });
   };
 
+  // ---------- フリック軌跡の描画（残像つき） ----------
+
+  private ensureTrailLoop(): void {
+    if (!this.trailRaf) this.trailRaf = requestAnimationFrame(this.renderTrail);
+  }
+
+  private readonly renderTrail = (): void => {
+    const c = this.trailCanvas;
+    const dpr = Math.min(window.devicePixelRatio, 2);
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    if (c.width !== Math.floor(w * dpr) || c.height !== Math.floor(h * dpr)) {
+      c.width = Math.floor(w * dpr);
+      c.height = Math.floor(h * dpr);
+    }
+    const ctx = c.getContext('2d') as CanvasRenderingContext2D;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+
+    const now = performance.now();
+    this.trail = this.trail.filter((p) => now - p.t < TRAIL_LIFE);
+
+    if (this.trail.length > 1) {
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      for (let i = 1; i < this.trail.length; i++) {
+        const a = this.trail[i - 1];
+        const b = this.trail[i];
+        const age = (now - b.t) / TRAIL_LIFE;
+        const alpha = Math.max(0, 1 - age);
+        ctx.strokeStyle = `rgba(204, 255, 51, ${alpha * 0.9})`;
+        ctx.lineWidth = 2 + alpha * 5;
+        ctx.shadowColor = '#ccff33';
+        ctx.shadowBlur = 12 * alpha;
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+      }
+      ctx.shadowBlur = 0;
+    }
+
+    if (this.trail.length > 0 || this.flickPointer !== null) {
+      this.trailRaf = requestAnimationFrame(this.renderTrail);
+    } else {
+      this.trailRaf = 0;
+    }
+  };
+
   constructor() {
     window.addEventListener('keydown', this.onKeyDown);
     window.addEventListener('keyup', this.onKeyUp);
-    this.zone.addEventListener('pointerdown', this.onDown);
-    this.zone.addEventListener('pointermove', this.onMove);
-    this.zone.addEventListener('pointerup', this.onUp);
-    this.zone.addEventListener('pointercancel', this.onUp);
+    this.joyZone.addEventListener('pointerdown', this.onJoyDown);
+    this.joyZone.addEventListener('pointermove', this.onJoyMove);
+    this.joyZone.addEventListener('pointerup', this.onJoyUp);
+    this.joyZone.addEventListener('pointercancel', this.onJoyUp);
+    this.flickZone.addEventListener('pointerdown', this.onFlickDown);
+    this.flickZone.addEventListener('pointermove', this.onFlickMove);
+    this.flickZone.addEventListener('pointerup', this.onFlickUp);
+    this.flickZone.addEventListener('pointercancel', this.onFlickUp);
   }
 
   dispose(): void {
     window.removeEventListener('keydown', this.onKeyDown);
     window.removeEventListener('keyup', this.onKeyUp);
-    this.zone.removeEventListener('pointerdown', this.onDown);
-    this.zone.removeEventListener('pointermove', this.onMove);
-    this.zone.removeEventListener('pointerup', this.onUp);
-    this.zone.removeEventListener('pointercancel', this.onUp);
+    this.joyZone.removeEventListener('pointerdown', this.onJoyDown);
+    this.joyZone.removeEventListener('pointermove', this.onJoyMove);
+    this.joyZone.removeEventListener('pointerup', this.onJoyUp);
+    this.joyZone.removeEventListener('pointercancel', this.onJoyUp);
+    this.flickZone.removeEventListener('pointerdown', this.onFlickDown);
+    this.flickZone.removeEventListener('pointermove', this.onFlickMove);
+    this.flickZone.removeEventListener('pointerup', this.onFlickUp);
+    this.flickZone.removeEventListener('pointercancel', this.onFlickUp);
+    cancelAnimationFrame(this.trailRaf);
+    this.trailRaf = 0;
+    this.trail = [];
+    this.trailCanvas.getContext('2d')?.clearRect(0, 0, this.trailCanvas.width, this.trailCanvas.height);
+    this.joyBase.hidden = true;
   }
 }

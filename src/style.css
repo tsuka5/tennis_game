@@ -756,7 +756,7 @@ body {
   text-shadow: 0 1px 6px #000;
 }
 
-/* スワイプ入力ゾーン（全デバイス。ボタン類は DOM 順で上に重なる） */
+/* フリック入力ゾーン（PC は全画面、スマホは右半分） */
 #swipe-zone {
   position: absolute;
   inset: 0;
@@ -764,9 +764,60 @@ body {
   touch-action: none;
 }
 
+/* フリック軌跡の残像キャンバス */
+#flick-canvas {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* バーチャルスティック（スマホのみ） */
+#joy-zone,
+#joy-base {
+  display: none;
+}
+
 @media (pointer: coarse) {
   #kbd-hint {
     display: none;
+  }
+
+  #swipe-zone {
+    left: 45%;
+  }
+
+  #joy-zone {
+    display: block;
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 45%;
+    pointer-events: auto;
+    touch-action: none;
+  }
+
+  #joy-base {
+    display: block;
+    position: absolute;
+    width: 120px;
+    height: 120px;
+    margin: -60px 0 0 -60px;
+    border-radius: 50%;
+    border: 2px solid #ffffff55;
+    background: #ffffff10;
+    pointer-events: none;
+  }
+
+  #joy-knob {
+    position: absolute;
+    width: 54px;
+    height: 54px;
+    left: 33px;
+    top: 33px;
+    border-radius: 50%;
+    background: #ffffffaa;
+    box-shadow: 0 2px 10px #00000088;
   }
 }
 
