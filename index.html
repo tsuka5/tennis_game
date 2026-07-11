@@ -21,8 +21,8 @@
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cpath d='M55,68 L55,41 A27,27 0 0 1 78.4,54.5 Z' fill='%23e8452c'/%3E%3Cpath d='M55,68 L78.4,54.5 A27,27 0 0 1 78.4,81.5 Z' fill='%23f2a33c'/%3E%3Cpath d='M55,68 L78.4,81.5 A27,27 0 0 1 55,95 Z' fill='%23ccff33'/%3E%3Cpath d='M55,68 L55,95 A27,27 0 0 1 31.6,81.5 Z' fill='%2327b7e8'/%3E%3Cpath d='M55,68 L31.6,81.5 A27,27 0 0 1 31.6,54.5 Z' fill='%239d6bf2'/%3E%3Cpath d='M55,68 L31.6,54.5 A27,27 0 0 1 55,41 Z' fill='%233ce8a0'/%3E%3Ccircle cx='55' cy='68' r='27' fill='none' stroke='%23eaf2ff' stroke-width='3'/%3E%3Ccircle cx='55' cy='68' r='6' fill='%23eaf2ff'/%3E%3Cline x1='24' y1='26' x2='35' y2='39' stroke='%23f2a33c' stroke-width='5' stroke-linecap='round'/%3E%3Cellipse cx='16' cy='16' rx='11' ry='14' transform='rotate(-35 16 16)' fill='%2314224a' stroke='%23eaf2ff' stroke-width='3'/%3E%3Cline x1='31' y1='13' x2='40' y2='16' stroke='%23eaf2ff' stroke-width='2' stroke-linecap='round' opacity='0.7'/%3E%3Cline x1='31' y1='20' x2='40' y2='21' stroke='%23eaf2ff' stroke-width='2' stroke-linecap='round' opacity='0.7'/%3E%3Ccircle cx='54' cy='22' r='9' fill='%23ccff33' stroke='%2310210a' stroke-width='1.5'/%3E%3Cpath d='M46,19 Q54,26 62,19' fill='none' stroke='%2310210a' stroke-width='1.5'/%3E%3C/svg%3E"
     />
-    <script type="module" crossorigin src="./assets/index-BZ-QhKpT.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-BA-7gtkx.css">
+    <script type="module" crossorigin src="./assets/index-BWiqSjAD.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-DrIaQXsV.css">
   </head>
   <body>
     <div id="app"></div>
@@ -40,6 +40,9 @@
           <button id="btn-practice" class="btn big">🎾 ひとりで練習（AI対戦）</button>
           <div class="btn-pair">
             <button id="btn-friends" class="btn">👥 フレンド</button>
+            <button id="btn-special" class="btn">⚡ 必殺技をつくる</button>
+          </div>
+          <div class="btn-pair">
             <button id="btn-manage" class="btn">📁 グループ管理</button>
             <button id="btn-solo-roulette" class="btn">🎰 ルーレット</button>
           </div>
@@ -94,6 +97,21 @@
           <div id="friend-list"></div>
           <p id="friend-status" class="hint-line"></p>
           <button id="btn-friends-back" class="btn">← 戻る</button>
+        </div>
+
+        <div id="menu-special" hidden>
+          <p class="panel-label">必殺技をつくる</p>
+          <input id="sp-name" class="name-input" maxlength="10" placeholder="技の名前（10文字まで）" autocomplete="off" />
+          <div class="btn-pair" id="sp-types">
+            <button data-type="speed" class="btn">⚡ スピード</button>
+            <button data-type="drop" class="btn">🪶 ドロップ</button>
+            <button data-type="moon" class="btn">🌙 ムーン</button>
+          </div>
+          <p id="sp-type-desc" class="hint-line"></p>
+          <div id="sp-rows"></div>
+          <p class="hint-line">のこり配分ポイント: <b id="sp-left">0</b></p>
+          <button id="btn-sp-save" class="btn big primary">保存する</button>
+          <button id="btn-sp-back" class="btn">← 戻る</button>
         </div>
 
         <div id="menu-roulette" hidden>
@@ -196,24 +214,23 @@
         </div>
       </div>
 
+      <!-- スワイプ入力（画面全体。ボタン類はこの上に重ねる） -->
+      <div id="swipe-zone"></div>
+
       <div id="msg"></div>
       <div id="spectating" hidden>👀 観戦中</div>
-      <div id="serve-hint" hidden>リングの位置にサーブが落ちます — 深いほど速い。タイミングよくショット！</div>
+      <div id="serve-hint" hidden>スワイプでサーブ！ リングの位置に落ちます — 深いほど速い</div>
       <div id="serve-meter" hidden><div id="serve-meter-fill"></div></div>
       <div id="kbd-hint">
-        移動: WASD / 矢印　　ショット: スペース　　ロブ: X　　必殺: C（⚡ゲージ満タンで）　　黄緑リング = 自分の返球の落下予測
+        スワイプで打つ（移動は自動）: 左右 = コース／長さ = 深さ・速さ／ゆっくり = ロブ　　必殺: ⚡ボタン / C
       </div>
 
       <!-- 必殺ゲージ -->
       <div id="special-meter" hidden><span class="sp-icon">⚡</span><div id="special-meter-track"><div id="special-meter-fill"></div></div></div>
 
-      <!-- タッチ操作 -->
-      <div id="joy-zone"></div>
-      <div id="joy-base" hidden><div id="joy-knob"></div></div>
+      <!-- 必殺ボタン（タッチ） -->
       <div id="touch-buttons">
         <button id="btnC" class="shot-btn special" disabled>⚡必殺</button>
-        <button id="btnB" class="shot-btn lob">ロブ</button>
-        <button id="btnA" class="shot-btn drive">ショット</button>
       </div>
 
       <button id="btn-quit" title="メニューへ戻る">✕</button>
