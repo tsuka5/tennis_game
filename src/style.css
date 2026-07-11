@@ -292,6 +292,52 @@ body {
   font-size: 11px;
 }
 
+/* ===================== フレンド ===================== */
+.friend-code {
+  font-size: 30px;
+}
+
+.friend-add-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+  margin: 6px 0 14px;
+}
+
+.friend-add-row .code-input {
+  flex: 1;
+  font-size: 20px;
+  padding: 10px;
+}
+
+.friend-add-row .btn {
+  width: auto;
+  margin: 0;
+  padding: 10px 18px;
+}
+
+.friend-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 4px;
+  border-top: 1px solid #ffffff14;
+  font-size: 14px;
+}
+
+.friend-row .f-name {
+  flex: 1;
+  text-align: left;
+  font-weight: 700;
+}
+
+.friend-row .f-join {
+  width: auto;
+  margin: 0;
+  padding: 7px 14px;
+  font-size: 13px;
+}
+
 /* ===================== ベット / 観戦予想 ===================== */
 #bet-panel {
   border-top: 1px solid #ffffff1c;

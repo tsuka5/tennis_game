@@ -3,6 +3,8 @@
  */
 import './style.css';
 import { sfx } from './core/audio';
+import { firebaseEnabled } from './friends/firebase-config';
+import type { FriendService } from './friends/friends';
 import { Game, practiceGame } from './game/Game';
 import type { RouletteKind } from './net/protocol';
 import { PartyClient, PartyHost, rouletteEntriesFor } from './party/party';
@@ -25,6 +27,7 @@ const menuJoin = $('menu-join');
 const menuGroup = $('menu-group');
 const menuManage = $('menu-manage');
 const menuRoulette = $('menu-roulette');
+const menuFriends = $('menu-friends');
 const groupSelect = $('group-select') as HTMLSelectElement;
 const groupInput = $('group-input') as HTMLInputElement;
 const nameInput = $('name-input') as HTMLInputElement;
@@ -36,8 +39,22 @@ const roulette = new RouletteView();
 
 let practice: Game | null = null;
 let party: PartyHost | PartyClient | null = null;
+let friends: FriendService | null = null;
 
 nameInput.value = loadMyName();
+
+// ===== フレンド機能（Firebase 設定があるときだけチャンクを読み込む） =====
+if (firebaseEnabled()) {
+  void import('./friends/friends')
+    .then((m) => m.FriendService.create(myName()))
+    .then((svc) => {
+      friends = svc;
+      $('friend-my-code').textContent = svc.myCode;
+    })
+    .catch(() => {
+      $('friend-status').textContent = 'フレンド機能に接続できませんでした';
+    });
+}
 
 // iOS Safari: 最初のユーザー操作で AudioContext を解放
 window.addEventListener('pointerdown', () => sfx.unlock(), { once: true });
@@ -93,12 +110,13 @@ function myName(): string {
   return n || 'プレイヤー';
 }
 
-function showPanel(panel: 'home' | 'join' | 'group' | 'manage' | 'roulette'): void {
+function showPanel(panel: 'home' | 'join' | 'group' | 'manage' | 'roulette' | 'friends'): void {
   menuHome.hidden = panel !== 'home';
   menuJoin.hidden = panel !== 'join';
   menuGroup.hidden = panel !== 'group';
   menuManage.hidden = panel !== 'manage';
   menuRoulette.hidden = panel !== 'roulette';
+  menuFriends.hidden = panel !== 'friends';
 }
 
 /** 保存済みグループでセレクトを埋める。グループがなければ false */
@@ -121,6 +139,7 @@ function toMenu(message?: string): void {
   practice = null;
   party?.destroy();
   party = null;
+  friends?.setRoom(null);
   menu.hidden = false;
   showPanel('home');
   joinStatus.textContent = '';
@@ -161,6 +180,7 @@ $('btn-group-go').addEventListener('click', () => {
   menuToast.textContent = '';
   const host = new PartyHost(myName(), group, roulette);
   party = host;
+  friends?.setRoom(host.code);
   host.onEnd = (message) => toMenu(message);
 });
 
@@ -174,20 +194,27 @@ $('btn-join').addEventListener('click', () => {
   joinInput.focus();
 });
 
-$('btn-join-go').addEventListener('click', () => {
-  const code = joinInput.value.trim().toUpperCase();
-  if (code.length !== 5) {
-    joinStatus.textContent = '5文字のコードを入力してください';
-    return;
-  }
+function joinRoomByCode(code: string): void {
+  showPanel('join');
+  joinInput.value = code;
   joinStatus.textContent = '接続中…';
   const client = new PartyClient(code, myName(), roulette);
   party = client;
   client.onJoined = () => {
     menu.hidden = true;
     joinStatus.textContent = '';
+    friends?.setRoom(code);
   };
   client.onEnd = (message) => toMenu(message);
+}
+
+$('btn-join-go').addEventListener('click', () => {
+  const code = joinInput.value.trim().toUpperCase();
+  if (code.length !== 5) {
+    joinStatus.textContent = '5文字のコードを入力してください';
+    return;
+  }
+  joinRoomByCode(code);
 });
 
 joinInput.addEventListener('keydown', (e) => {
@@ -285,6 +312,89 @@ soloSelect.addEventListener('change', renderSoloRoulette);
 $('btn-solo-penalty').addEventListener('click', () => spinSolo('penalty'));
 $('btn-solo-reward').addEventListener('click', () => spinSolo('reward'));
 $('btn-roulette-back').addEventListener('click', () => showPanel('home'));
+
+// ===== フレンド =====
+const friendCodeInput = $('friend-code-input') as HTMLInputElement;
+const friendStatus = $('friend-status');
+
+async function refreshFriendList(): Promise<void> {
+  if (!friends) return;
+  const list = await friends.listFriends().catch(() => null);
+  if (!list || menuFriends.hidden) return;
+  const el = $('friend-list');
+  el.innerHTML = '';
+  if (list.length === 0) {
+    friendStatus.textContent = 'まだフレンドがいません。コードを教え合って追加しよう';
+    return;
+  }
+  friendStatus.textContent = '';
+  for (const f of list) {
+    const row = document.createElement('div');
+    row.className = 'friend-row';
+    const dot = document.createElement('span');
+    dot.textContent = f.online ? '🟢' : '⚪';
+    const name = document.createElement('span');
+    name.className = 'f-name';
+    name.textContent = f.name;
+    row.append(dot, name);
+    if (f.online && f.roomCode) {
+      const join = document.createElement('button');
+      join.className = 'btn f-join';
+      join.textContent = `🎾 ${f.roomCode} に参加`;
+      join.onclick = () => joinRoomByCode(f.roomCode as string);
+      row.appendChild(join);
+    } else {
+      const st = document.createElement('span');
+      st.className = 'tag';
+      st.style.opacity = '0.5';
+      st.textContent = f.online ? 'オンライン' : 'オフライン';
+      row.appendChild(st);
+    }
+    el.appendChild(row);
+  }
+}
+
+$('btn-friends').addEventListener('click', () => {
+  showPanel('friends');
+  if (!firebaseEnabled()) {
+    friendStatus.textContent =
+      'フレンド機能は未設定です。FIREBASE_SETUP.md の手順で有効化できます';
+    return;
+  }
+  if (friends) $('friend-my-code').textContent = friends.myCode;
+  friendStatus.textContent = '読み込み中…';
+  void refreshFriendList();
+  // パネルを見ている間はオンライン状態を定期更新
+  const timer = window.setInterval(() => {
+    if (menuFriends.hidden) {
+      window.clearInterval(timer);
+      return;
+    }
+    void refreshFriendList();
+  }, 15000);
+});
+
+$('btn-friend-add').addEventListener('click', () => {
+  if (!friends) return;
+  friendStatus.textContent = '追加中…';
+  void friends
+    .addFriendByCode(friendCodeInput.value)
+    .catch(() => null)
+    .then((name) => {
+      if (name) {
+        friendStatus.textContent = `${name} さんとフレンドになりました！`;
+        friendCodeInput.value = '';
+        void refreshFriendList();
+      } else {
+        friendStatus.textContent = 'コードが見つかりませんでした';
+      }
+    });
+});
+
+$('btn-friends-back').addEventListener('click', () => showPanel('home'));
+
+// 名前を変えたらフレンド側の表示名も更新
+nameInput.addEventListener('change', () => friends?.setName(myName()));
 
 // ===== ゲーム中の操作（練習モード用。パーティー中はロビーの退出ボタンで抜ける） =====
 $('btn-quit').addEventListener('click', () => {

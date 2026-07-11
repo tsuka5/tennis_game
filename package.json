@@ -11,6 +11,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "firebase": "^12.16.0",
     "peerjs": "^1.5.4",
     "three": "^0.170.0"
   },

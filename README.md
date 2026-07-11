@@ -6,6 +6,10 @@ Three.js による 3D スタジアム（ナイトセッション）と、WebRTC 
 
 ## 遊び方
 
+**公開版（おすすめ）**: main に push すると GitHub Actions が自動で GitHub Pages に
+デプロイします（`.github/workflows/deploy.yml`）。公開 URL をスマホで開けば、
+**離れた場所の友達ともルームコードだけで対戦できます**（同じ Wi-Fi は不要）。
+
 ```bash
 npm install
 npm run dev        # 開発サーバー（LAN 公開: スマホから http://<PC-IP>:5173）
@@ -18,6 +22,13 @@ npm run dev        # 開発サーバー（LAN 公開: スマホから http://<PC
 
 P2P はインターネット経由で接続できます（シグナリングに PeerJS の無料クラウドを使用。
 以降のゲーム通信は WebRTC DataChannel で直接 P2P）。
+
+### フレンド機能（オプション）
+
+自分の Firebase プロジェクト（無料）をつなぐと、ホームの「👥 フレンド」で
+フレンドコードによる登録・オンライン表示・**友達がいる部屋へのワンタップ参加**が
+使えます。セットアップ手順は [FIREBASE_SETUP.md](FIREBASE_SETUP.md) を参照。
+未設定でもゲーム本体はすべて動きます。
 
 ### パーティーの流れ（勝ち残り制）
 

@@ -222,7 +222,8 @@ export class PartyHost {
   private championId: string | null = null;
   private game: Game | null = null;
   private currentIds: [string, string] | null = null;
-  private readonly code = randomCode();
+  /** ルームコード（フレンド機能の「今いる部屋」公開にも使う） */
+  readonly code = randomCode();
   private banner = 'メンバーの参加を待っています';
   private destroyed = false;
 
