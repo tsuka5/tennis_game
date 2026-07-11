@@ -21,8 +21,8 @@
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cpath d='M55,68 L55,41 A27,27 0 0 1 78.4,54.5 Z' fill='%23e8452c'/%3E%3Cpath d='M55,68 L78.4,54.5 A27,27 0 0 1 78.4,81.5 Z' fill='%23f2a33c'/%3E%3Cpath d='M55,68 L78.4,81.5 A27,27 0 0 1 55,95 Z' fill='%23ccff33'/%3E%3Cpath d='M55,68 L55,95 A27,27 0 0 1 31.6,81.5 Z' fill='%2327b7e8'/%3E%3Cpath d='M55,68 L31.6,81.5 A27,27 0 0 1 31.6,54.5 Z' fill='%239d6bf2'/%3E%3Cpath d='M55,68 L31.6,54.5 A27,27 0 0 1 55,41 Z' fill='%233ce8a0'/%3E%3Ccircle cx='55' cy='68' r='27' fill='none' stroke='%23eaf2ff' stroke-width='3'/%3E%3Ccircle cx='55' cy='68' r='6' fill='%23eaf2ff'/%3E%3Cline x1='24' y1='26' x2='35' y2='39' stroke='%23f2a33c' stroke-width='5' stroke-linecap='round'/%3E%3Cellipse cx='16' cy='16' rx='11' ry='14' transform='rotate(-35 16 16)' fill='%2314224a' stroke='%23eaf2ff' stroke-width='3'/%3E%3Cline x1='31' y1='13' x2='40' y2='16' stroke='%23eaf2ff' stroke-width='2' stroke-linecap='round' opacity='0.7'/%3E%3Cline x1='31' y1='20' x2='40' y2='21' stroke='%23eaf2ff' stroke-width='2' stroke-linecap='round' opacity='0.7'/%3E%3Ccircle cx='54' cy='22' r='9' fill='%23ccff33' stroke='%2310210a' stroke-width='1.5'/%3E%3Cpath d='M46,19 Q54,26 62,19' fill='none' stroke='%2310210a' stroke-width='1.5'/%3E%3C/svg%3E"
     />
-    <script type="module" crossorigin src="./assets/index-jg-z54DA.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-Bfo6Kjus.css">
+    <script type="module" crossorigin src="./assets/index-BNRJnzTp.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-DTf4cGbv.css">
   </head>
   <body>
     <div id="app"></div>
@@ -37,7 +37,7 @@
           <input id="name-input" class="name-input" maxlength="8" placeholder="なまえ（8文字まで）" autocomplete="off" />
           <button id="btn-create" class="btn big primary">🏟 パーティールームを作る</button>
           <button id="btn-join" class="btn big">🔑 ルームに参加</button>
-          <button id="btn-practice" class="btn big">🎾 ひとりで練習（AI対戦）</button>
+          <button id="btn-practice" class="btn big">🎾 ひとりで練習（CPU対戦）</button>
           <div class="btn-pair">
             <button id="btn-friends" class="btn">👥 フレンド</button>
             <button id="btn-manage" class="btn">📁 グループ管理</button>
@@ -69,6 +69,14 @@
           <p id="join-status" class="hint-line"></p>
           <button id="btn-join-go" class="btn big primary">参加する</button>
           <button id="btn-join-back" class="btn">← 戻る</button>
+        </div>
+
+        <div id="menu-practice" hidden>
+          <p class="panel-label">CPU のつよさ</p>
+          <button id="btn-cpu-1" class="btn big">🐣 よわい</button>
+          <button id="btn-cpu-2" class="btn big primary">🎾 ふつう</button>
+          <button id="btn-cpu-3" class="btn big">🔥 つよい</button>
+          <button id="btn-practice-back" class="btn">← 戻る</button>
         </div>
 
         <div id="menu-manage" hidden>
@@ -204,10 +212,10 @@
           <p class="help-sec">🎾 操作</p>
           <ul>
             <li>移動: 画面<b>左半分</b>のスティック（PC は WASD / 矢印）</li>
-            <li>打つ: 画面<b>右半分をフリック</b>（PC はマウス）。フリックの<b>延長線上</b>にボールが飛ぶ</li>
-            <li>速く長くフリックするほど強い。強すぎ・広すぎは<b>アウト</b>（リングが赤なら危険）</li>
+            <li>打つ: 画面<b>右半分をフリック</b>（PC はマウス）。フリック中は<b>これから飛ぶ軌道</b>が表示される</li>
+            <li>速く長くフリックするほど強い。軌道が<b>赤ならアウト</b>コース</li>
             <li>ゆっくり長くなぞると<b>ロブ</b>、タップでふんわり返球</li>
-            <li>サーブは動くリングが着地点。<b>深い（赤い）ほど速い</b>。良いタイミングでフリック！</li>
+            <li>サーブもフリック。向きと強さで<b>対角のサービスボックス</b>を狙う（外すとフォルト）</li>
           </ul>
           <p class="help-sec">💰 ポイント</p>
           <ul>
@@ -249,15 +257,12 @@
       <!-- バーチャルスティック（スマホの左半分） -->
       <div id="joy-zone"></div>
       <div id="joy-base" hidden><div id="joy-knob"></div></div>
-      <!-- フリック軌跡の残像 -->
-      <canvas id="flick-canvas"></canvas>
 
       <div id="msg"></div>
       <div id="spectating" hidden>👀 観戦中</div>
-      <div id="serve-hint" hidden>フリックでサーブ！ リングの位置に落ちます — 深いほど速い</div>
-      <div id="serve-meter" hidden><div id="serve-meter-fill"></div></div>
+      <div id="serve-hint" hidden>フリックでサーブ！ 向きと強さで対角のサービスボックスを狙おう（軌道が出ます）</div>
       <div id="kbd-hint">
-        移動: WASD / 矢印　　打つ: マウスでフリック — 軌道の延長線上へ飛ぶ／速く長いほど強い（アウト注意）／ゆっくり = ロブ
+        移動: WASD / 矢印　　打つ: マウスでフリック — 飛んでいく軌道が表示される／速く長いほど強い／ゆっくり = ロブ
       </div>
 
       <button id="btn-quit" title="メニューへ戻る">✕</button>
