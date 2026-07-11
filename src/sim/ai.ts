@@ -14,7 +14,6 @@ export class AiController {
   private planned = false;
   private aim = 0;
   private lob = false;
-  private special = false;
 
   update(dt: number, sim: HostSim): void {
     const me = sim.players[AI_INDEX];
@@ -28,7 +27,7 @@ export class AiController {
         const aim = sim.serveAim;
         if (this.serveTimer > 0.7 && aim && aim.power > 0.45 && aim.power < 0.8) {
           this.serveTimer = 0;
-          sim.trySwing(AI_INDEX, { kind: 'drive', aim: 0 });
+          sim.trySwing(AI_INDEX, { kind: 'drive', dirX: 0, dirY: 1, power: 0.6 });
         }
       }
       return;
@@ -66,15 +65,18 @@ export class AiController {
       if (!this.planned) {
         this.planned = true;
         this.reactTimer = 0.08 + Math.random() * 0.16;
-        this.aim = (Math.random() * 2 - 1) * 0.95;
+        this.aim = (Math.random() * 2 - 1) * 0.7;
         this.lob = Math.random() < 0.14;
-        this.special = sim.meters[AI_INDEX] >= 1 && Math.random() < 0.4;
       }
       this.reactTimer -= dt;
       if (this.reactTimer <= 0) {
         this.planned = false;
-        const kind = this.special ? 'special' : this.lob ? 'lob' : 'drive';
-        sim.trySwing(AI_INDEX, { kind, aim: this.aim, power: 0.45 + Math.random() * 0.5 });
+        sim.trySwing(AI_INDEX, {
+          kind: this.lob ? 'lob' : 'drive',
+          dirX: this.aim,
+          dirY: 1,
+          power: 0.4 + Math.random() * 0.45,
+        });
       }
     } else {
       this.planned = false;

@@ -10,11 +10,10 @@
 import * as THREE from 'three';
 import { COURT, NET_RATE, PLAY, PRACTICE_GAMES_TO_WIN } from '../config';
 import { sfx } from '../core/audio';
-import type { ClientMsg, FxCounters, Phase, Score, Snapshot, SpecialSpec } from '../net/protocol';
+import type { ClientMsg, FxCounters, Phase, Score, Snapshot } from '../net/protocol';
 import { HostSim, planShot, serveStand } from '../sim/HostSim';
 import type { ServeAim } from '../sim/HostSim';
 import { simulateLanding } from '../sim/physics';
-import { DEFAULT_SPECIAL } from '../sim/special';
 import { AiController } from '../sim/ai';
 import { BallSim } from '../sim/physics';
 import { Controls } from '../ui/controls';
@@ -40,8 +39,6 @@ export interface GameOpts {
   gamesToWin: number;
   /** 練習モード（AI 対戦・リザルトと再戦 UI を出す） */
   practice: boolean;
-  /** 対戦者の自作必殺技（authority のみ使用。省略時はデフォルト技） */
-  specials?: [SpecialSpec, SpecialSpec];
   net: GameNet | null;
   /** authority のみ: 決着から少し置いて一度だけ呼ばれる */
   onMatchOver?: (winnerIdx: 0 | 1, score: Score) => void;
@@ -83,7 +80,6 @@ export class Game {
   private p0Target: [number, number, number] = [0, 0, 0];
   private p1Target: [number, number, number] = [0, 0, 0];
   private netServeAim: ServeAim | null = null;
-  private netMeters: [number, number] = [0, 0];
 
   /** 直近のスコア（クライアントはサーブ位置拘束の判定に使う） */
   private lastScore: Score | null = null;
@@ -109,7 +105,7 @@ export class Game {
     if (this.playerIdx !== null) this.meZ = this.s * (COURT.HALF_L + 1);
 
     if (opts.authority) {
-      this.sim = new HostSim(Math.random() < 0.5 ? 0 : 1, opts.gamesToWin, opts.specials);
+      this.sim = new HostSim(Math.random() < 0.5 ? 0 : 1, opts.gamesToWin);
       if (opts.practice) this.ai = new AiController();
     }
 
@@ -180,9 +176,14 @@ export class Game {
     this.mySwing = (ballX - this.meX) * this.s >= 0 ? 1 : -1;
     // すぐ当たらないスワイプはホスト側でバッファされ、ボール到達時に発動する
     if (this.sim) {
-      this.sim.trySwing(this.playerIdx, { kind: shot.kind, aim: shot.aim, power: shot.power });
+      this.sim.trySwing(this.playerIdx, {
+        kind: shot.kind,
+        dirX: shot.dirX,
+        dirY: shot.dirY,
+        power: shot.power,
+      });
     } else if (this.opts.net) {
-      this.opts.net.send({ t: 'swing', kind: shot.kind, aim: shot.aim, pw: shot.power });
+      this.opts.net.send({ t: 'swing', kind: shot.kind, dx: shot.dirX, dy: shot.dirY, pw: shot.power });
     }
   }
 
@@ -196,7 +197,7 @@ export class Game {
       this.sim.players[idx].z = m.p[1];
       this.sim.players[idx].swing = m.sw;
     } else if (m.t === 'swing') {
-      this.sim.trySwing(idx, { kind: m.kind, aim: m.aim, power: m.pw });
+      this.sim.trySwing(idx, { kind: m.kind, dirX: m.dx, dirY: m.dy, power: m.pw });
     }
   }
 
@@ -216,7 +217,6 @@ export class Game {
     }
 
     this.netServeAim = s.sv ? { x: s.sv[0], z: s.sv[1], power: s.sv[2] } : null;
-    this.netMeters = s.sm;
 
     const [px, py, pz, vx, vy, vz] = s.b;
     if (s.ba && s.ph === 'rally') {
@@ -274,28 +274,26 @@ export class Game {
     }
     this.landView.update(dt, this.landTarget ? { ...this.landTarget, power: 0 } : null);
 
-    // 返球プレビュー（ボールが自分側へ来ている間、スワイプ/キー入力に追従）
+    // 返球プレビュー（ボールが自分側へ来ている間、引っ張り入力に追従。アウトは赤）
     let preview: ServeAim | null = null;
+    let previewOut = false;
     if (flying && this.playerIdx !== null && this.controls) {
       const incoming = Math.sign(ball.p.z) === this.s || ball.v.z * this.s > 0;
-      if (incoming) {
-        const live = this.controls.live;
-        const aimIn = live.active ? live.aim : this.controls.keyAim;
-        const powIn = live.active ? live.power : 0.7;
-        const oppX = this.sim
-          ? this.sim.players[(1 - this.playerIdx) as 0 | 1].x
-          : (this.playerIdx === 0 ? this.p1Target : this.p0Target)[0];
-        const plan = planShot(
-          ball.p,
-          { x: this.meX, z: this.meZ },
-          this.s,
-          { kind: 'drive', aim: aimIn, power: powIn },
-          oppX,
-        );
+      const live = this.controls.live;
+      if (incoming && live.active) {
+        const plan = planShot(ball.p, this.s, {
+          kind: 'drive',
+          dirX: live.dirX,
+          dirY: live.dirY,
+          power: live.power,
+        });
         preview = { x: plan.tx, z: plan.tz, power: 0 };
+        const m = COURT.LINE_MARGIN;
+        previewOut =
+          Math.abs(plan.tx) > COURT.HALF_SW + m || Math.abs(plan.tz) > COURT.HALF_L + m;
       }
     }
-    this.returnAimView.update(dt, preview);
+    this.returnAimView.update(dt, preview, previewOut ? 0xff5050 : undefined);
   }
 
   /** Tennis Clash 式の自動移動: 着地予測へ走り、それ以外はセンターへ戻る */
@@ -368,7 +366,6 @@ export class Game {
     const aim = sim.phase === 'await-serve' ? sim.serveAim : null;
     this.serveAimView.update(dt, aim);
     if (aim && this.playerIdx === sim.score.server) this.hud.setServePower(aim.power);
-    if (this.playerIdx !== null) this.hud.setSpecial(sim.meters[this.playerIdx]);
 
     // 決着通知（パーティーはこの後ロビーへ、練習はリザルト UI）
     if (sim.phase === 'over' && !this.matchOverFired && sim.score.winner !== null) {
@@ -424,7 +421,6 @@ export class Game {
     if (aim && this.lastScore && this.lastScore.server === this.playerIdx) {
       this.hud.setServePower(aim.power);
     }
-    if (this.playerIdx !== null) this.hud.setSpecial(this.netMeters[this.playerIdx]);
   }
 
   /** スコア/メッセージ/効果音など authority・クライアント共通の HUD 反映 */
@@ -509,7 +505,6 @@ export class Game {
         sim.phase === 'await-serve' && sim.serveAim
           ? [sim.serveAim.x, sim.serveAim.z, sim.serveAim.power]
           : null,
-      sm: [sim.meters[0], sim.meters[1]],
     };
   }
 
@@ -542,14 +537,13 @@ export class Game {
   }
 }
 
-export function practiceGame(mySpecial?: SpecialSpec): Game {
+export function practiceGame(): Game {
   return new Game({
     authority: true,
     playerIdx: 0,
     names: ['あなた', 'AI'],
     gamesToWin: PRACTICE_GAMES_TO_WIN,
     practice: true,
-    specials: mySpecial ? [mySpecial, DEFAULT_SPECIAL] : undefined,
     net: null,
   });
 }

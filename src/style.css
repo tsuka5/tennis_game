@@ -338,44 +338,53 @@ body {
   font-size: 13px;
 }
 
-/* ===================== 必殺技エディター ===================== */
-.sp-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 8px 0;
-  font-size: 14px;
-}
-
-.sp-row .sp-label {
-  width: 4.5em;
+/* ===================== ポイント履歴 ===================== */
+.history-list {
+  max-height: 220px;
+  overflow-y: auto;
+  touch-action: pan-y;
+  margin-bottom: 12px;
+  font-size: 12px;
   text-align: left;
-  font-weight: 700;
-  opacity: 0.85;
 }
 
-.sp-row .sp-bar {
-  flex: 1;
+.history-row {
   display: flex;
-  gap: 4px;
+  gap: 8px;
+  align-items: baseline;
+  padding: 5px 2px;
+  border-top: 1px solid #ffffff10;
 }
 
-.sp-row .sp-cell {
-  flex: 1;
-  height: 12px;
-  border-radius: 4px;
-  background: #ffffff18;
+.history-row .h-time {
+  opacity: 0.45;
+  white-space: nowrap;
+  font-size: 11px;
 }
 
-.sp-row .sp-cell.on {
-  background: var(--accent);
-  box-shadow: 0 0 8px #ccff3355;
+.history-row .h-name {
+  font-weight: 700;
+  white-space: nowrap;
 }
 
-#sp-types .btn.sel {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #10210a;
+.history-row .h-delta {
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.history-row .h-delta.plus {
+  color: var(--accent);
+}
+
+.history-row .h-delta.minus {
+  color: #ff8a8a;
+}
+
+.history-row .h-why {
+  opacity: 0.6;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ===================== ベット / 観戦予想 ===================== */
@@ -608,49 +617,6 @@ body {
   }
 }
 
-/* 必殺ゲージ */
-#special-meter {
-  position: absolute;
-  bottom: 38px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-#special-meter .sp-icon {
-  font-size: 14px;
-  opacity: 0.75;
-  text-shadow: 0 1px 6px #000;
-}
-
-#special-meter-track {
-  width: min(200px, 30vw);
-  height: 8px;
-  border-radius: 999px;
-  background: #ffffff1e;
-  border: 1px solid #ffffff36;
-  overflow: hidden;
-}
-
-#special-meter-fill {
-  height: 100%;
-  width: 0%;
-  border-radius: 999px;
-  background: linear-gradient(90deg, #f2a33c, #ff5050);
-}
-
-#special-meter.full #special-meter-track {
-  border-color: #ffb340;
-  box-shadow: 0 0 14px #ffb340aa;
-}
-
-#special-meter.full .sp-icon {
-  opacity: 1;
-  animation: pulse 0.8s ease-in-out infinite;
-}
-
 /* サーブのパワーゲージ */
 #serve-meter {
   position: absolute;
@@ -690,51 +656,9 @@ body {
   touch-action: none;
 }
 
-/* 必殺ボタン（タッチ端末のみ表示。PC は C キー） */
-#touch-buttons {
-  display: none;
-}
-
 @media (pointer: coarse) {
   #kbd-hint {
     display: none;
-  }
-
-  #touch-buttons {
-    display: flex;
-    position: absolute;
-    right: 22px;
-    bottom: 26px;
-    pointer-events: auto;
-  }
-
-  .shot-btn {
-    border-radius: 50%;
-    border: 2px solid;
-    font-weight: 800;
-    color: #fff;
-    text-shadow: 0 1px 4px #000;
-  }
-
-  .shot-btn.special {
-    width: 84px;
-    height: 84px;
-    font-size: 14px;
-    background: #ffb34033;
-    border-color: #ffb340;
-  }
-
-  .shot-btn.special:not(:disabled) {
-    box-shadow: 0 0 18px #ffb340aa;
-    animation: pulse 0.8s ease-in-out infinite;
-  }
-
-  .shot-btn.special:disabled {
-    opacity: 0.3;
-  }
-
-  .shot-btn:active {
-    filter: brightness(1.6);
   }
 }
 

@@ -10,8 +10,26 @@ export interface PlayerStats {
   losses: number;
 }
 
+/** ポイントの取引履歴（誰が・いつ・何pt・なぜ。台帳の透明性のため全操作を記録） */
+export interface LogEntry {
+  /** epoch ms */
+  t: number;
+  name: string;
+  /** 増減 */
+  d: number;
+  /** 理由（勝利/賭け/予想的中/手動調整 など） */
+  why: string;
+  /** 適用後の残高 */
+  after: number;
+}
+
+/** グループごとに残す履歴の上限 */
+const LOG_LIMIT = 300;
+
 interface StoreV2 {
   groups: Record<string, Record<string, PlayerStats>>;
+  /** グループ名 → 新しい順の取引履歴（v2 からの後付けフィールド） */
+  logs?: Record<string, LogEntry[]>;
 }
 
 // キー名は旧名(touch-smash)のままだが、変更すると既存端末の
@@ -58,18 +76,40 @@ export function getStats(group: string, name: string): PlayerStats {
   return s ? { ...s } : { pts: 0, wins: 0, losses: 0 };
 }
 
-function update(group: string, name: string, fn: (s: PlayerStats) => void): PlayerStats {
+function update(
+  group: string,
+  name: string,
+  why: string,
+  fn: (s: PlayerStats) => void,
+): PlayerStats {
   const store = load();
   const g = (store.groups[group] ??= {});
   const s = (g[name] ??= { pts: 0, wins: 0, losses: 0 });
+  const before = s.pts;
   fn(s);
   s.pts = Math.max(0, Math.round(s.pts));
+  if (s.pts !== before) {
+    appendLog(store, group, { t: Date.now(), name, d: s.pts - before, why, after: s.pts });
+  }
   save(store);
   return { ...s };
 }
 
-export function addResult(group: string, name: string, ptsDelta: number, won: boolean): PlayerStats {
-  return update(group, name, (s) => {
+function appendLog(store: StoreV2, group: string, entry: LogEntry): void {
+  const logs = (store.logs ??= {});
+  const list = (logs[group] ??= []);
+  list.unshift(entry);
+  if (list.length > LOG_LIMIT) list.length = LOG_LIMIT;
+}
+
+export function addResult(
+  group: string,
+  name: string,
+  ptsDelta: number,
+  won: boolean,
+  why = won ? '勝利' : '敗北',
+): PlayerStats {
+  return update(group, name, why, (s) => {
     s.pts += ptsDelta;
     if (won) s.wins += 1;
     else s.losses += 1;
@@ -77,10 +117,20 @@ export function addResult(group: string, name: string, ptsDelta: number, won: bo
 }
 
 /** ホストによる手動調整（動的なポイント変更） */
-export function adjustPoints(group: string, name: string, delta: number): PlayerStats {
-  return update(group, name, (s) => {
+export function adjustPoints(
+  group: string,
+  name: string,
+  delta: number,
+  why = '手動調整',
+): PlayerStats {
+  return update(group, name, why, (s) => {
     s.pts += delta;
   });
+}
+
+/** 取引履歴（新しい順） */
+export function listHistory(group: string, limit = 60): LogEntry[] {
+  return (load().logs?.[group] ?? []).slice(0, limit);
 }
 
 export interface MemberRow extends PlayerStats {
@@ -110,29 +160,12 @@ export function resetPoints(group: string, names: string[]): void {
   const g = store.groups[group];
   if (!g) return;
   for (const n of names) {
-    if (g[n]) g[n].pts = 0;
+    if (g[n] && g[n].pts !== 0) {
+      appendLog(store, group, { t: Date.now(), name: n, d: -g[n].pts, why: 'リセット', after: 0 });
+      g[n].pts = 0;
+    }
   }
   save(store);
-}
-
-const SPECIAL_KEY = 'lucky-smash-special';
-
-/** 自作必殺技の読み込み（生値。使用側で sanitizeSpecial すること） */
-export function loadSpecial(): unknown {
-  try {
-    const raw = localStorage.getItem(SPECIAL_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-}
-
-export function saveSpecial(sp: unknown): void {
-  try {
-    localStorage.setItem(SPECIAL_KEY, JSON.stringify(sp));
-  } catch {
-    /* noop */
-  }
 }
 
 export function loadMyName(): string {

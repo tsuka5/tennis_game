@@ -38,9 +38,6 @@
           <button id="btn-practice" class="btn big">🎾 ひとりで練習（AI対戦）</button>
           <div class="btn-pair">
             <button id="btn-friends" class="btn">👥 フレンド</button>
-            <button id="btn-special" class="btn">⚡ 必殺技をつくる</button>
-          </div>
-          <div class="btn-pair">
             <button id="btn-manage" class="btn">📁 グループ管理</button>
             <button id="btn-solo-roulette" class="btn">🎰 ルーレット</button>
           </div>
@@ -81,6 +78,8 @@
             <tbody id="manage-rows"></tbody>
           </table>
           <p id="manage-hint" class="hint-line">ポイントは ± で調整、🗑 でメンバーを削除できます</p>
+          <p class="panel-label">📜 ポイント履歴</p>
+          <div id="manage-history" class="history-list"></div>
           <button id="btn-manage-back" class="btn">← 戻る</button>
         </div>
 
@@ -97,25 +96,16 @@
           <button id="btn-friends-back" class="btn">← 戻る</button>
         </div>
 
-        <div id="menu-special" hidden>
-          <p class="panel-label">必殺技をつくる</p>
-          <input id="sp-name" class="name-input" maxlength="10" placeholder="技の名前（10文字まで）" autocomplete="off" />
-          <div class="btn-pair" id="sp-types">
-            <button data-type="speed" class="btn">⚡ スピード</button>
-            <button data-type="drop" class="btn">🪶 ドロップ</button>
-            <button data-type="moon" class="btn">🌙 ムーン</button>
-          </div>
-          <p id="sp-type-desc" class="hint-line"></p>
-          <div id="sp-rows"></div>
-          <p class="hint-line">のこり配分ポイント: <b id="sp-left">0</b></p>
-          <button id="btn-sp-save" class="btn big primary">保存する</button>
-          <button id="btn-sp-back" class="btn">← 戻る</button>
-        </div>
-
         <div id="menu-roulette" hidden>
           <p class="panel-label">ルーレット</p>
           <select id="solo-group-select" class="group-select"></select>
           <p id="solo-roulette-hint" class="hint-line"></p>
+          <table id="solo-preview" class="ledger" hidden>
+            <thead>
+              <tr><th>なまえ</th><th>ポイント</th><th>💥罰</th><th>🎁褒</th></tr>
+            </thead>
+            <tbody id="solo-preview-rows"></tbody>
+          </table>
           <div class="btn-pair">
             <button id="btn-solo-penalty" class="btn">💥 罰ゲーム</button>
             <button id="btn-solo-reward" class="btn">🎁 ご褒美</button>
@@ -220,15 +210,7 @@
       <div id="serve-hint" hidden>スワイプでサーブ！ リングの位置に落ちます — 深いほど速い</div>
       <div id="serve-meter" hidden><div id="serve-meter-fill"></div></div>
       <div id="kbd-hint">
-        スワイプで打つ（移動は自動）: 左右 = コース／長さ = 深さ・速さ／ゆっくり = ロブ　　必殺: ⚡ボタン / C
-      </div>
-
-      <!-- 必殺ゲージ -->
-      <div id="special-meter" hidden><span class="sp-icon">⚡</span><div id="special-meter-track"><div id="special-meter-fill"></div></div></div>
-
-      <!-- 必殺ボタン（タッチ） -->
-      <div id="touch-buttons">
-        <button id="btnC" class="shot-btn special" disabled>⚡必殺</button>
+        画面を引っ張って打つ（移動は自動）: ボールは引っ張った延長線上へ／強く引くほど速く遠く（アウト注意）／ゆっくり = ロブ
       </div>
 
       <button id="btn-quit" title="メニューへ戻る">✕</button>

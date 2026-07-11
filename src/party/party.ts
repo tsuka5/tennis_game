@@ -15,11 +15,9 @@ import type {
   RouletteKind,
   Score,
   Snapshot,
-  SpecialSpec,
 } from '../net/protocol';
-import { DEFAULT_SPECIAL, sanitizeSpecial } from '../sim/special';
 import { RouletteView } from '../ui/roulette';
-import { addResult, adjustPoints, getStats, loadSpecial, resetPoints } from './storage';
+import { addResult, adjustPoints, getStats, resetPoints } from './storage';
 
 const $ = (id: string): HTMLElement => document.getElementById(id) as HTMLElement;
 
@@ -242,14 +240,10 @@ export class PartyHost {
   /** ルームが閉じた（エラー含む）ときにメニューへ戻すためのフック */
   onEnd: (message?: string) => void = () => {};
 
-  /** 各メンバーの自作必殺技（hello で受け取り、ホストがサニタイズ済み） */
-  private readonly specs = new Map<string, SpecialSpec>();
-
   constructor(myName: string, group: string, roulette: RouletteView) {
     this.roulette = roulette;
     this.group = group;
     this.members.set('host', { id: 'host', name: myName, ...getStats(group, myName) });
-    this.specs.set('host', sanitizeSpecial(loadSpecial()));
     this.rotation.push('host');
 
     this.net.onData = (id, m) => this.onData(id, m);
@@ -320,7 +314,6 @@ export class PartyHost {
 
   private onData(id: string, m: ClientMsg): void {
     if (m.t === 'hello') {
-      this.specs.set(id, sanitizeSpecial(m.sp));
       this.addMember(id, m.name);
       return;
     }
@@ -372,7 +365,6 @@ export class PartyHost {
     const m = this.members.get(id);
     if (!m) return;
     this.members.delete(id);
-    this.specs.delete(id);
     this.rotation = this.rotation.filter((x) => x !== id);
     if (this.championId === id) this.championId = null;
     this.banner = `${m.name} さんが退出しました`;
@@ -526,10 +518,6 @@ export class PartyHost {
       names,
       gamesToWin,
       practice: false,
-      specials: [
-        this.specs.get(this.currentIds[0]) ?? DEFAULT_SPECIAL,
-        this.specs.get(this.currentIds[1]) ?? DEFAULT_SPECIAL,
-      ],
       net: {
         send: () => {},
         broadcast: (s: Snapshot) => this.net.broadcast(s),
@@ -551,8 +539,17 @@ export class PartyHost {
       const winnerDelta = winPts + stake;
       const loserDelta = loserGames * PTS_PER_GAME - stake;
       // 過去データとして永続保存（グループ×名前キー）し、メモリ上へ反映
-      Object.assign(winner, { id: winnerId }, addResult(this.group, winner.name, winnerDelta, true));
-      Object.assign(loser, { id: loserId }, addResult(this.group, loser.name, loserDelta, false));
+      const stakeNote = stake > 0 ? `（賭け${stake}pt込み）` : '';
+      Object.assign(
+        winner,
+        { id: winnerId },
+        addResult(this.group, winner.name, winnerDelta, true, `${loser.name}に勝利${stakeNote}`),
+      );
+      Object.assign(
+        loser,
+        { id: loserId },
+        addResult(this.group, loser.name, loserDelta, false, `${winner.name}に敗北${stakeNote}`),
+      );
       let banner =
         `🏆 ${winner.name} の勝ち！ +${winnerDelta}pt ／ ` +
         `${loser.name} ${loserDelta >= 0 ? '+' : ''}${loserDelta}pt` +
@@ -564,7 +561,11 @@ export class PartyHost {
         if (!pm || p.amount <= 0) continue;
         const hit = this.currentIds[p.target] === winnerId;
         const delta = hit ? p.amount : -p.amount;
-        Object.assign(pm, { id: pid }, adjustPoints(this.group, pm.name, delta));
+        Object.assign(
+          pm,
+          { id: pid },
+          adjustPoints(this.group, pm.name, delta, hit ? '勝敗予想が的中' : '勝敗予想はずれ'),
+        );
         settled.push(`${hit ? '🎯' : '💧'}${pm.name}${delta >= 0 ? '+' : ''}${delta}`);
       }
       if (settled.length) banner += ` ／ 予想: ${settled.join(' ')}`;
@@ -640,8 +641,7 @@ export class PartyClient {
 
   constructor(code: string, myName: string, roulette: RouletteView) {
     this.roulette = roulette;
-    this.net.onOpen = () =>
-      this.net.send({ t: 'hello', name: myName, sp: sanitizeSpecial(loadSpecial()) });
+    this.net.onOpen = () => this.net.send({ t: 'hello', name: myName });
     this.net.onClose = (reason) => {
       this.destroy();
       this.onEnd(reason);

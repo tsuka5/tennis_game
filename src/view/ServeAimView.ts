@@ -49,7 +49,8 @@ export class ServeAimView {
     scene.add(this.group);
   }
 
-  update(dt: number, aim: ServeAim | null): void {
+  /** colorOverride を渡すと固定色より優先（例: アウト予測の赤） */
+  update(dt: number, aim: ServeAim | null, colorOverride?: number): void {
     if (!aim) {
       this.group.visible = false;
       return;
@@ -58,7 +59,9 @@ export class ServeAimView {
     this.group.visible = true;
     this.group.position.set(aim.x, 0.02, aim.z);
     this.group.scale.setScalar(this.baseScale * (1 + 0.12 * Math.sin(this.t * 7)));
-    if (this.fixedColor) {
+    if (colorOverride !== undefined) {
+      this.color.set(colorOverride);
+    } else if (this.fixedColor) {
       this.color.copy(this.fixedColor);
     } else {
       // 緑（弱）→ 赤（強）

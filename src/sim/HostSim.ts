@@ -4,10 +4,9 @@
  * ここではルール判定にのみ使う。
  */
 import { COURT, PLAY, SERVE } from '../config';
-import type { FxCounters, Phase, Score, ShotKind, SpecialSpec } from '../net/protocol';
-import { BallSim, shotAtLanding, shotWithClearance } from './physics';
+import type { FxCounters, Phase, Score, ShotKind } from '../net/protocol';
+import { BallSim, shotAtLanding } from './physics';
 import { addPoint, newScore } from './score';
-import { DEFAULT_SPECIAL } from './special';
 
 export interface PlayerState {
   x: number;
@@ -21,10 +20,12 @@ export interface PlayerState {
 
 export interface SwingCmd {
   kind: ShotKind;
-  /** そのプレイヤー視点の左右狙い -1..1 */
-  aim: number;
-  /** スワイプの強さ 0..1（深さ・速さ）。省略時は 0.7 */
-  power?: number;
+  /** 引っ張った方向（自分視点。右+） */
+  dirX: number;
+  /** 引っ張った方向（自分視点。前=ネット方向+） */
+  dirY: number;
+  /** 引っ張りの強さ 0..1 */
+  power: number;
 }
 
 const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
@@ -53,9 +54,6 @@ export interface ServeAim {
   power: number;
 }
 
-/** 1回の返球で貯まる必殺ゲージ量（4回の返球で満タン） */
-export const SPECIAL_CHARGE = 0.25;
-
 export interface ShotPlan {
   tx: number;
   tz: number;
@@ -63,76 +61,54 @@ export interface ShotPlan {
   t: number;
   margin: number;
   smash: boolean;
-  special: boolean;
 }
 
+/** 引っ張り最小/最大での飛距離 (m)。最大はベースラインの奥＝アウトも狙える */
+const PULL_DIST_MIN = 4;
+const PULL_DIST_MAX = 26;
+
 /**
- * 返球の弾道プラン（決定論部分）。doHit の実弾道と、打つ前の
- * 着地予測マーカー表示の両方で使い、表示と実際のズレをなくす。
- * Tennis Clash 式: スワイプの強さ（power）が深さと速さを決める。
- * ボールを前で捉えたタイミングボーナスが少しだけ上乗せされる。
- * oppX を渡すと、必殺で狙いが中立のとき相手から遠いコーナーを自動選択する。
+ * 返球の弾道プラン（決定論。着弾のブレなし）。
+ * 引っ張り式: ボールは引っ張った方向の延長線上に落ちる。強く引くほど
+ * 遠く・速く飛ぶ。コートへのクランプはしない＝強すぎ・広すぎはアウトになる。
+ * doHit の実弾道と打つ前のプレビューマーカーの両方で使う。
  */
 export function planShot(
   b: { x: number; y: number; z: number },
-  pl: { x: number; z: number },
   s: 1 | -1,
   cmd: SwingCmd,
-  oppX = 0,
-  spec: SpecialSpec = DEFAULT_SPECIAL,
 ): ShotPlan {
-  // タイミング: ボールを体の前（ネット寄り）で捉えるほど 1
-  const frontDist = (pl.z - b.z) * s;
-  const front = clamp((frontDist + PLAY.REACH) / (2 * PLAY.REACH), 0, 1);
-  const power = clamp(cmd.power ?? 0.7, 0, 1);
-
-  const special = cmd.kind === 'special';
-  const smash = cmd.kind === 'drive' && b.y > PLAY.SMASH_MIN_Y;
-  let t: number;
-  let depth: number;
-  let margin: number;
-  let aim = cmd.aim;
-
-  if (special) {
-    // 自作必殺技: タイプ + 配分（速さ spd / 深さ dep / 角度 ang）
-    if (spec.type === 'drop') {
-      // ネット際に落とす（深さ配分が高いほどネット寄り）
-      t = 0.95 - 0.07 * spec.spd;
-      depth = (1.6 + (4 - spec.dep) * 0.45) / COURT.HALF_L;
-      margin = 0.45;
-    } else if (spec.type === 'moon') {
-      // 超高弾道で深くバウンドの高いロブ
-      t = 2.1 - 0.12 * spec.spd;
-      depth = 0.72 + 0.05 * spec.dep;
-      margin = 2.6;
-    } else {
-      // スピード: 超高速・低弾道
-      t = 0.62 - 0.045 * spec.spd;
-      depth = 0.55 + 0.075 * spec.dep;
-      margin = 0.05;
-    }
-    // 角度配分が高いほどサイドを深く突ける
-    const sharp = 0.65 + 0.0875 * spec.ang;
-    if (Math.abs(aim) < 0.15) aim = -Math.sign(oppX || 1) * s; // 相手から遠い側へ
-    aim = clamp(aim, -1, 1) * sharp;
-  } else if (cmd.kind === 'lob') {
-    t = 1.7 - 0.25 * power;
-    depth = 0.5 + 0.35 * power + 0.08 * front;
-    margin = 1.7;
-  } else if (smash) {
-    t = 0.66 - 0.18 * power - 0.06 * front;
-    depth = 0.45 + 0.4 * power;
-    margin = 0.05;
-  } else {
-    // スワイプが長いほど速く深く、短いとドロップ気味。速いショットほどリスク増
-    t = 1.05 - 0.42 * power - 0.08 * front;
-    depth = 0.3 + 0.58 * power + 0.1 * front;
-    margin = 0.52 - 0.34 * power;
+  const power = clamp(cmd.power, 0, 1);
+  // 引っ張り方向の単位ベクトル（自分視点）。後ろ向きは前方へ丸める
+  const len = Math.hypot(cmd.dirX, cmd.dirY);
+  let ux = len > 1e-6 ? cmd.dirX / len : 0;
+  let uy = len > 1e-6 ? cmd.dirY / len : 1;
+  if (uy < 0.18) {
+    uy = 0.18;
+    const n = Math.hypot(ux, uy);
+    ux /= n;
+    uy /= n;
   }
 
-  const tx = clamp(aim * s * (COURT.HALF_SW - 0.6), -(COURT.HALF_SW - 0.35), COURT.HALF_SW - 0.35);
-  const tz = -s * clamp(COURT.HALF_L * depth, 1.8, COURT.HALF_L - 0.4);
-  return { tx, tz, t, margin, smash, special };
+  // 着地点 = ボール位置から引っ張りの延長線上
+  const dist = PULL_DIST_MIN + power * (PULL_DIST_MAX - PULL_DIST_MIN);
+  const tx = b.x + ux * s * dist;
+  const tz = b.z - uy * s * dist;
+
+  const smash = cmd.kind === 'drive' && b.y > PLAY.SMASH_MIN_Y;
+  let t: number;
+  let margin: number;
+  if (cmd.kind === 'lob') {
+    t = 1.9 - 0.5 * power;
+    margin = 1.7;
+  } else if (smash) {
+    t = 0.72 - 0.3 * power;
+    margin = 0.05;
+  } else {
+    t = 1.1 - 0.52 * power;
+    margin = 0.42 - 0.3 * power;
+  }
+  return { tx, tz, t, margin, smash };
 }
 
 export class HostSim {
@@ -150,8 +126,6 @@ export class HostSim {
 
   /** await-serve 中のサーブ照準（それ以外は null） */
   serveAim: ServeAim | null = null;
-  /** 必殺ゲージ 0..1（返球で貯まり、必殺で消費。試合をまたがない） */
-  meters: [number, number] = [0, 0];
 
   private lastHitter: 0 | 1 = 0;
   private bouncesSinceHit = 0;
@@ -168,15 +142,9 @@ export class HostSim {
   ];
 
   private readonly gamesToWin: number;
-  private readonly specials: [SpecialSpec, SpecialSpec];
 
-  constructor(
-    firstServer: 0 | 1,
-    gamesToWin: number,
-    specials: [SpecialSpec, SpecialSpec] = [DEFAULT_SPECIAL, DEFAULT_SPECIAL],
-  ) {
+  constructor(firstServer: 0 | 1, gamesToWin: number) {
     this.gamesToWin = gamesToWin;
-    this.specials = specials;
     this.score = newScore(firstServer);
     this.say('スタート！');
   }
@@ -184,7 +152,6 @@ export class HostSim {
   restart(): void {
     this.score = newScore(Math.random() < 0.5 ? 0 : 1);
     this.serveNum = 1;
-    this.meters = [0, 0];
     this.phase = 'between';
     this.timer = 1.2;
     this.say('スタート！');
@@ -303,39 +270,14 @@ export class HostSim {
     const b = this.ball.p;
     const from = { x: b.x, y: Math.max(b.y, 0.45), z: b.z };
 
-    // 必殺はゲージ満タンのときだけ（足りなければ通常ショット扱い）
-    let kind = cmd.kind;
-    if (kind === 'special' && this.meters[i] < 1) kind = 'drive';
-    const plan = planShot(
-      b,
-      this.players[i],
-      s,
-      { kind, aim: cmd.aim, power: cmd.power },
-      this.players[1 - i].x,
-      this.specials[i],
-    );
-
-    if (plan.special) {
-      this.meters[i] = 0;
+    const plan = planShot(b, s, cmd);
+    if (plan.smash) {
       this.fx.smash++;
-      this.say(`⚡ ${this.specials[i].name}！`);
-    } else {
-      this.meters[i] = Math.min(1, this.meters[i] + SPECIAL_CHARGE);
-      if (plan.smash) {
-        this.fx.smash++;
-        this.say('スマッシュ！');
-      }
+      this.say('スマッシュ！');
     }
 
-    // 着地予測マーカーを見て狙えるよう、ブレは控えめ（必殺はブレなし）
-    const noise = plan.special ? 0 : 1;
-    const tx = clamp(
-      plan.tx + (Math.random() * 2 - 1) * 0.15 * noise,
-      -(COURT.HALF_SW - 0.35),
-      COURT.HALF_SW - 0.35,
-    );
-    const tz = -s * clamp(Math.abs(plan.tz) + (Math.random() * 2 - 1) * 0.2 * noise, 2.2, COURT.HALF_L - 0.4);
-    const v = shotWithClearance(from, tx, tz, plan.t, plan.margin);
+    // 引っ張った延長線上に正確に落とす（ブレなし。アウトは自己責任）
+    const v = shotAtLanding(from, plan.tx, plan.tz, plan.t, plan.margin);
     this.ball.set(from, v);
     this.serving = false;
     this.lastHitter = i;

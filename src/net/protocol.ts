@@ -4,21 +4,7 @@
  * ルームはスター型: 全クライアントがホストに接続し、ホストが配信する。
  */
 
-export type ShotKind = 'drive' | 'lob' | 'special';
-
-/**
- * 自作必殺技（パーツの組み合わせ）。タイプ + 6ポイントを
- * 速さ/深さ/角度に配分。値はホスト側で必ずサニタイズする。
- */
-export interface SpecialSpec {
-  /** 発動時に表示される技名（最大10文字） */
-  name: string;
-  type: 'speed' | 'drop' | 'moon';
-  /** 各 0..4、合計 6 まで */
-  spd: number;
-  dep: number;
-  ang: number;
-}
+export type ShotKind = 'drive' | 'lob';
 
 export type Phase = 'await-serve' | 'rally' | 'between' | 'over';
 
@@ -60,8 +46,6 @@ export interface Snapshot {
   reset: number;
   /** サーブ照準 [着地x, 着地z, パワー0..1]（await-serve 中のみ、それ以外は null） */
   sv: [number, number, number] | null;
-  /** 必殺ゲージ 0..1 [player0, player1] */
-  sm: [number, number];
 }
 
 /** ロビーのメンバー情報（ポイントはホストの端末に永続保存される） */
@@ -92,9 +76,10 @@ export interface BettingState {
 
 /** クライアント → ホスト */
 export type ClientMsg =
-  | { t: 'hello'; name: string; sp?: SpecialSpec }
+  | { t: 'hello'; name: string }
   | { t: 'pos'; p: [number, number]; sw: number }
-  | { t: 'swing'; kind: ShotKind; aim: number; pw?: number }
+  /** dx/dy = 自分視点の引っ張り方向（右+/前+）、pw = 強さ 0..1 */
+  | { t: 'swing'; kind: ShotKind; dx: number; dy: number; pw: number }
   | { t: 'bet'; amount: number }
   | { t: 'predict'; target: 0 | 1; amount: number };
 
