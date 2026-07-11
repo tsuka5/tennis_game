@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <title>Touch Smash — P2P テニス</title>
+    <!-- ホーム画面に追加した場合はブラウザUIなしで起動 -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🎾%3C/text%3E%3C/svg%3E"
+    />
+    <script type="module" crossorigin src="./assets/index-Bph87nr0.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-DHvajfWz.css">
+  </head>
+  <body>
+    <div id="app"></div>
+
+    <!-- ===== メニュー ===== -->
+    <div id="menu" class="screen">
+      <div class="menu-card">
+        <h1 class="title">TOUCH<span class="accent">SMASH</span></h1>
+        <p class="subtitle">P2P オンライン対戦テニス</p>
+
+        <div id="menu-home">
+          <input id="name-input" class="name-input" maxlength="8" placeholder="なまえ（8文字まで）" autocomplete="off" />
+          <button id="btn-create" class="btn big primary">🏟 パーティールームを作る</button>
+          <button id="btn-join" class="btn big">🔑 ルームに参加</button>
+          <button id="btn-practice" class="btn big">🎾 ひとりで練習（AI対戦）</button>
+          <div class="btn-pair">
+            <button id="btn-friends" class="btn">👥 フレンド</button>
+            <button id="btn-manage" class="btn">📁 グループ管理</button>
+            <button id="btn-solo-roulette" class="btn">🎰 ルーレット</button>
+          </div>
+          <p class="hint-line">
+            みんなで集まって勝ち残り戦。対戦や賭けでポイントを貯めると<br />
+            罰ゲーム/ご褒美ルーレットの確率が変わります
+          </p>
+          <p id="menu-toast" class="hint-line" style="color: #ff9f9f"></p>
+        </div>
+
+        <div id="menu-group" hidden>
+          <p class="panel-label">ポイント共有グループ</p>
+          <select id="group-select" class="group-select"></select>
+          <input id="group-input" class="name-input" maxlength="12" placeholder="新しいグループ名" autocomplete="off" />
+          <p class="hint-line">
+            ポイントはグループごとに別々に貯まります。<br />
+            同じグループで集まれば、貯めたポイントがずっと引き継がれます。
+          </p>
+          <button id="btn-group-go" class="btn big primary">このグループでルーム作成</button>
+          <button id="btn-group-back" class="btn">← 戻る</button>
+        </div>
+
+        <div id="menu-join" hidden>
+          <p class="panel-label">ルームコードを入力</p>
+          <input id="join-input" class="code-input" maxlength="5" placeholder="ABCDE" autocomplete="off" />
+          <p id="join-status" class="hint-line"></p>
+          <button id="btn-join-go" class="btn big primary">参加する</button>
+          <button id="btn-join-back" class="btn">← 戻る</button>
+        </div>
+
+        <div id="menu-manage" hidden>
+          <p class="panel-label">グループ管理</p>
+          <select id="manage-select" class="group-select"></select>
+          <table id="manage-table" class="ledger">
+            <thead>
+              <tr><th>なまえ</th><th>ポイント</th><th>勝敗</th><th></th></tr>
+            </thead>
+            <tbody id="manage-rows"></tbody>
+          </table>
+          <p id="manage-hint" class="hint-line">ポイントは ± で調整、🗑 でメンバーを削除できます</p>
+          <button id="btn-manage-back" class="btn">← 戻る</button>
+        </div>
+
+        <div id="menu-friends" hidden>
+          <p class="panel-label">フレンド</p>
+          <div id="friend-my-code" class="room-code friend-code">------</div>
+          <p class="hint-line">あなたのフレンドコード。教え合って追加するとお互いに登録されます</p>
+          <div class="friend-add-row">
+            <input id="friend-code-input" class="code-input" maxlength="6" placeholder="ABC123" autocomplete="off" />
+            <button id="btn-friend-add" class="btn">追加</button>
+          </div>
+          <div id="friend-list"></div>
+          <p id="friend-status" class="hint-line"></p>
+          <button id="btn-friends-back" class="btn">← 戻る</button>
+        </div>
+
+        <div id="menu-roulette" hidden>
+          <p class="panel-label">ルーレット</p>
+          <select id="solo-group-select" class="group-select"></select>
+          <p id="solo-roulette-hint" class="hint-line"></p>
+          <div class="btn-pair">
+            <button id="btn-solo-penalty" class="btn">💥 罰ゲーム</button>
+            <button id="btn-solo-reward" class="btn">🎁 ご褒美</button>
+          </div>
+          <p class="hint-line">
+            貯めたポイントですぐに抽選できます。<br />
+            罰ゲームはポイントが多いほど当たりにくく、ご褒美は当たりやすくなります
+          </p>
+          <button id="btn-roulette-back" class="btn">← 戻る</button>
+        </div>
+      </div>
+      <p class="credit">Three.js + WebRTC (PeerJS)</p>
+    </div>
+
+    <!-- ===== パーティーロビー ===== -->
+    <div id="lobby" class="screen" hidden>
+      <div class="menu-card lobby-card">
+        <p class="panel-label">ルームコード</p>
+        <div id="lobby-code" class="room-code">-----</div>
+        <p id="lobby-group" class="lobby-group"></p>
+        <p id="lobby-banner" class="lobby-banner"></p>
+        <table id="lobby-table" class="ledger">
+          <thead>
+            <tr><th></th><th>なまえ</th><th>ポイント</th><th>勝敗</th><th></th></tr>
+          </thead>
+          <tbody id="lobby-rows"></tbody>
+        </table>
+
+        <!-- 対戦前ベット / 観戦予想 -->
+        <div id="bet-panel" hidden>
+          <div id="bet-matchup"></div>
+          <p id="bet-stake-line" class="lobby-banner"></p>
+          <div id="bet-my" hidden>
+            <p class="hint-line">賭けるポイントを選んでください（両者の低い方に揃えて勝者総取り）</p>
+            <div id="bet-chips" class="chip-row"></div>
+          </div>
+          <div id="bet-predict" hidden>
+            <p class="hint-line">勝者を予想してポイントを賭けよう（的中で同額ゲット、外れたら没収）</p>
+            <div class="btn-pair">
+              <button id="predict-p0" class="btn"></button>
+              <button id="predict-p1" class="btn"></button>
+            </div>
+            <div id="predict-chips" class="chip-row"></div>
+          </div>
+          <p id="bet-status" class="hint-line"></p>
+          <div id="bet-host-controls" hidden>
+            <button id="btn-bet-start" class="btn big primary">🎾 試合開始</button>
+            <button id="btn-bet-cancel" class="btn subtle">ベットを中止</button>
+          </div>
+        </div>
+
+        <div id="lobby-host-controls" hidden>
+          <div class="lobby-row-controls">
+            <label for="games-select">試合形式</label>
+            <select id="games-select">
+              <option value="0">1ポイント（サドンデス）</option>
+              <option value="1">1ゲーム（サクサク）</option>
+              <option value="2" selected>2ゲーム先取</option>
+              <option value="4">4ゲーム先取（じっくり）</option>
+            </select>
+          </div>
+          <button id="btn-start-match" class="btn big primary">🎾 次の試合へ（ベット受付）</button>
+          <div class="btn-pair">
+            <button id="btn-roulette-penalty" class="btn">💥 罰ゲームルーレット</button>
+            <button id="btn-roulette-reward" class="btn">🎁 ご褒美ルーレット</button>
+          </div>
+          <button id="btn-reset-pts" class="btn subtle">ポイントをリセット</button>
+        </div>
+        <p id="lobby-guest-hint" class="hint-line" hidden>ホストの操作を待っています…</p>
+        <button id="btn-lobby-leave" class="btn">退出する</button>
+      </div>
+    </div>
+
+    <!-- ===== ルーレット ===== -->
+    <div id="roulette" hidden>
+      <div id="roulette-title">ルーレット</div>
+      <canvas id="roulette-canvas"></canvas>
+      <div id="roulette-result"></div>
+      <button id="roulette-close" class="btn big primary" hidden>とじる</button>
+    </div>
+
+    <!-- ===== ゲーム中 HUD ===== -->
+    <div id="hud" hidden>
+      <div id="scoreboard">
+        <div class="sb-row" id="sb-row-me">
+          <span class="sb-name" id="sb-name-me">あなた</span>
+          <span class="sb-games" id="sb-games-me">0</span>
+          <span class="sb-points" id="sb-points-me">0</span>
+        </div>
+        <div class="sb-row" id="sb-row-opp">
+          <span class="sb-name" id="sb-name-opp">あいて</span>
+          <span class="sb-games" id="sb-games-opp">0</span>
+          <span class="sb-points" id="sb-points-opp">0</span>
+        </div>
+      </div>
+
+      <div id="msg"></div>
+      <div id="spectating" hidden>👀 観戦中</div>
+      <div id="serve-hint" hidden>リングの位置にサーブが落ちます — 深いほど速い。タイミングよくショット！</div>
+      <div id="serve-meter" hidden><div id="serve-meter-fill"></div></div>
+      <div id="kbd-hint">
+        移動: WASD / 矢印　　ショット: スペース　　ロブ: X　　高い球は自動スマッシュ／前で打つほど深く飛ぶ
+      </div>
+
+      <!-- タッチ操作 -->
+      <div id="joy-zone"></div>
+      <div id="joy-base" hidden><div id="joy-knob"></div></div>
+      <div id="touch-buttons">
+        <button id="btnB" class="shot-btn lob">ロブ</button>
+        <button id="btnA" class="shot-btn drive">ショット</button>
+      </div>
+
+      <button id="btn-quit" title="メニューへ戻る">✕</button>
+
+      <!-- 試合終了 -->
+      <div id="result" hidden>
+        <div class="result-card">
+          <div id="result-title">WIN</div>
+          <div id="result-detail"></div>
+          <button id="btn-rematch" class="btn big primary">もう一度</button>
+          <button id="btn-result-menu" class="btn">メニューへ</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 全画面切り替え（Fullscreen API 非対応端末では JS 側で非表示のまま） -->
+    <button id="btn-fullscreen" title="全画面にする" hidden>⛶</button>
+
+    <!-- 縦画面ガイド -->
+    <div id="rotate-overlay">
+      <div class="icon">📱</div>
+      <div>端末を横にしてください</div>
+    </div>
+
+  </body>
+</html>
