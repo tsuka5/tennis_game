@@ -14,6 +14,8 @@ import type { RouletteKind } from '../net/protocol';
 
 const COLORS = ['#e8452c', '#27b7e8', '#ccff33', '#f2a33c', '#9d6bf2', '#3ce8a0', '#f25c9a', '#5c7cf2'];
 const LED_COUNT = 28;
+/** ホイールのポケット数（1〜N の番号つき。色の数 = メンバーの当選確率） */
+const POCKETS = 24;
 
 // タイムライン（ゲーム内秒。クライマックスはスローモーションで実時間が伸びる）
 const T_SPIN = 2.6; // ボールがリムを高速周回
@@ -68,33 +70,75 @@ export class RouletteView {
     this.title.textContent = kind === 'penalty' ? '罰ゲームルーレット' : 'ご褒美ルーレット';
     this.title.className = kind;
 
-    // セグメント角度
+    // 本物のルーレット風: 等間隔の番号ポケット。各メンバーの色ポケット数が
+    // 確率に比例し（最大剰余法・最低1個）、同じ色は飛び飛びに散らす
     const total = entries.reduce((a, e) => a + e.pct, 0) || 1;
-    let acc = 0;
-    let winStart = 0;
-    let winSpan = 0;
-    const spans: { from: number; span: number }[] = [];
-    for (let i = 0; i < entries.length; i++) {
-      const span = (entries[i].pct / total) * Math.PI * 2;
-      spans.push({ from: acc, span });
-      if (i === winner) {
-        winStart = acc;
-        winSpan = span;
-      }
-      acc += span;
+    const exact = entries.map((e) => (e.pct / total) * POCKETS);
+    const alloc = exact.map((x) => Math.max(1, Math.floor(x)));
+    let rem = POCKETS - alloc.reduce((a, b) => a + b, 0);
+    const byFrac = exact
+      .map((x, i) => ({ i, frac: x - Math.floor(x) }))
+      .sort((a, b) => b.frac - a.frac);
+    for (let k = 0; rem > 0; k = (k + 1) % byFrac.length) {
+      alloc[byFrac[k].i]++;
+      rem--;
     }
-    // 境界ぎわに落として「ギリギリ感」を出す（狭い枠は中央寄りに逃がす）
-    const edge =
-      winSpan > 0.4
-        ? Math.random() < 0.5
-          ? 0.1 + Math.random() * 0.15
-          : 0.75 + Math.random() * 0.15
-        : 0.3 + Math.random() * 0.4;
-    const landing = winStart + winSpan * edge;
-    // カタカタは近い側の境界を跨ぐ（境界までの距離より大きい振幅で往復）
-    const distToEdge = Math.min(landing - winStart, winStart + winSpan - landing);
+    for (let k = byFrac.length - 1; rem < 0 && k >= 0; k--) {
+      if (alloc[byFrac[k].i] > 1) {
+        alloc[byFrac[k].i]--;
+        rem++;
+      }
+      if (k === 0 && rem < 0) k = byFrac.length; // 足りなければもう一周
+    }
+    // 均等散布: 各スロットで「期待配置数 - 実配置数」が最大のメンバーを置く
+    const pockets: number[] = [];
+    const placed = entries.map(() => 0);
+    for (let s = 0; s < POCKETS; s++) {
+      let best = 0;
+      let bestScore = -Infinity;
+      for (let i = 0; i < entries.length; i++) {
+        if (placed[i] >= alloc[i]) continue;
+        const score = (alloc[i] * (s + 1)) / POCKETS - placed[i];
+        if (score > bestScore) {
+          bestScore = score;
+          best = i;
+        }
+      }
+      pockets.push(best);
+      placed[best]++;
+    }
+
+    // 当選メンバーのポケットからランダムに1つ選び、境界ぎわに落とす
+    const span = (Math.PI * 2) / POCKETS;
+    const winSlots: number[] = [];
+    pockets.forEach((m, s) => {
+      if (m === winner) winSlots.push(s);
+    });
+    const slot = winSlots[Math.floor(Math.random() * winSlots.length)] ?? 0;
+    const edge = Math.random() < 0.5 ? 0.14 + Math.random() * 0.14 : 0.72 + Math.random() * 0.14;
+    const landing = slot * span + span * edge;
+    // カタカタは近い側の境界（=隣の色）を跨ぐ
+    const distToEdge = Math.min(span * edge, span * (1 - edge));
     const wobSign = edge < 0.5 ? -1 : 1;
-    const wobAmp = Math.min(distToEdge * 2.4 + 0.05, 0.5);
+    const wobAmp = Math.min(distToEdge * 2.6 + 0.03, span * 0.95);
+
+    // 凡例（だれが何色か + 確率）
+    const legend = document.getElementById('rl-legend') as HTMLElement;
+    legend.innerHTML = '';
+    entries.forEach((e, i) => {
+      const chip = document.createElement('span');
+      chip.className = 'lg-chip';
+      const dot = document.createElement('i');
+      dot.className = 'lg-dot';
+      dot.style.background = COLORS[i % COLORS.length];
+      const nm = document.createElement('span');
+      nm.textContent = e.name;
+      const pc = document.createElement('span');
+      pc.className = 'lg-pct';
+      pc.textContent = `${e.pct.toFixed(0)}%・${alloc[i]}枠`;
+      chip.append(dot, nm, pc);
+      legend.appendChild(chip);
+    });
 
     const wheelSpins = 4;
     const finalRot = Math.PI * 2 * wheelSpins;
@@ -113,15 +157,12 @@ export class RouletteView {
     let stopAt = 0;
     const particles: Particle[] = [];
 
-    // ボールのホイール内角度からセグメント番号
+    // ボールのホイール内角度からポケット番号
     const segAtLocal = (a0: number): number => {
       const twoPi = Math.PI * 2;
       let a = a0 % twoPi;
       if (a < 0) a += twoPi;
-      for (let i = 0; i < spans.length; i++) {
-        if (a >= spans[i].from && a < spans[i].from + spans[i].span) return i;
-      }
-      return spans.length - 1;
+      return Math.min(POCKETS - 1, Math.floor(a / span));
     };
 
     const tick = (now: number): void => {
@@ -198,8 +239,7 @@ export class RouletteView {
       }
 
       this.draw(
-        entries,
-        spans,
+        pockets,
         rotW,
         {
           time: now,
@@ -246,8 +286,7 @@ export class RouletteView {
   }
 
   private draw(
-    entries: RouletteEntry[],
-    spans: { from: number; span: number }[],
+    pockets: number[],
     rot: number,
     fx: {
       time: number;
@@ -302,41 +341,48 @@ export class RouletteView {
     ctx.lineWidth = 2;
     ctx.stroke();
 
-    // セグメント
-    for (let i = 0; i < entries.length; i++) {
-      const a0 = spans[i].from + rot;
-      const a1 = a0 + spans[i].span;
-      const dimmed = fx.spotlight !== -1 && i !== fx.spotlight;
+    // 番号つきポケット（色 = メンバー。金色のフレットで仕切る）
+    const span = (Math.PI * 2) / pockets.length;
+    for (let s = 0; s < pockets.length; s++) {
+      const a0 = s * span + rot;
+      const a1 = a0 + span;
+      const dimmed = fx.spotlight !== -1 && s !== fx.spotlight;
       ctx.save();
-      ctx.globalAlpha = dimmed ? 0.32 : 1;
-      if (!dimmed && fx.spotlight === i) {
+      ctx.globalAlpha = dimmed ? 0.34 : 1;
+      if (!dimmed && fx.spotlight === s) {
         ctx.shadowColor = '#ffffff';
-        ctx.shadowBlur = 24;
+        ctx.shadowBlur = 22;
       }
       ctx.beginPath();
       ctx.moveTo(cx, cy);
       ctx.arc(cx, cy, r, a0, a1);
       ctx.closePath();
-      ctx.fillStyle = COLORS[i % COLORS.length];
+      ctx.fillStyle = COLORS[pockets[s] % COLORS.length];
       ctx.fill();
       ctx.shadowBlur = 0;
-      ctx.strokeStyle = '#0b1530';
-      ctx.lineWidth = 3;
+      // フレット（仕切り）
+      ctx.strokeStyle = '#c8a23c';
+      ctx.lineWidth = 2;
       ctx.stroke();
 
-      // ラベル（名前 + %）
-      const mid = (a0 + a1) / 2;
-      const lr = r * 0.62;
+      // ポケット番号
+      const mid = a0 + span / 2;
+      const lr = r * 0.84;
       ctx.translate(cx + Math.cos(mid) * lr, cy + Math.sin(mid) * lr);
       ctx.rotate(mid + Math.PI / 2);
       ctx.fillStyle = '#0d1220';
       ctx.textAlign = 'center';
-      ctx.font = `800 ${Math.max(13, size * 0.035)}px system-ui, sans-serif`;
-      ctx.fillText(entries[i].name, 0, 0);
-      ctx.font = `700 ${Math.max(11, size * 0.026)}px system-ui, sans-serif`;
-      ctx.fillText(`${entries[i].pct.toFixed(1)}%`, 0, size * 0.035);
+      ctx.font = `800 ${Math.max(11, size * 0.032)}px system-ui, sans-serif`;
+      ctx.fillText(String(s + 1), 0, 0);
       ctx.restore();
     }
+
+    // 内側の飾りリング
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * 0.55, 0, Math.PI * 2);
+    ctx.strokeStyle = '#c8a23c';
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
 
     // 外周 LED（回転中: チェイス → 終盤: 点滅加速 → 停止後: ストロボ）
     for (let i = 0; i < LED_COUNT; i++) {
@@ -417,6 +463,8 @@ export class RouletteView {
     this.auraEl.className = '';
     this.raysEl.className = '';
     this.flashEl.className = '';
+    const legend = document.getElementById('rl-legend');
+    if (legend) legend.innerHTML = '';
     this.root.hidden = true;
   }
 }
