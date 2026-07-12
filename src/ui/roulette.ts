@@ -202,7 +202,7 @@ export class RouletteView {
           zoomTarget = 1 + 1.4 * zp;
         }
       }
-      zoom += (zoomTarget - zoom) * Math.min(1, dtReal * 4.5);
+      zoom += (zoomTarget - zoom) * Math.min(1, dtReal * 3.2);
 
       // ボールがセグメント境界を跨ぐたびにカチッ（クライマックスのカタカタも同じ経路で鳴る）
       const idx = segAtLocal(local);
@@ -326,7 +326,8 @@ export class RouletteView {
     ctx.scale(dpr, dpr);
     const cx = size / 2;
     const cy = size / 2;
-    const r = size / 2 - 26;
+    // ボウル(1.2r)とLEDがキャンバスに収まる半径
+    const r = (size / 2 - 12) / 1.24;
 
     // ボールのキャンバス座標
     const ballA = rot + fx.ballLocal;
@@ -338,24 +339,42 @@ export class RouletteView {
     if (fx.shake > 0) {
       ctx.translate((Math.random() * 2 - 1) * 7 * fx.shake, (Math.random() * 2 - 1) * 7 * fx.shake);
     }
-    // ズームカメラ（ボール中心）
-    if (zoom > 1.01) {
-      ctx.translate(cx, cy);
-      ctx.scale(zoom, zoom);
-      ctx.translate(-bx, -by);
-    }
+    // ズームカメラ: 注視点をズーム量に応じて中心 → ボールへ連続ブレンド
+    // （zoom=1 で恒等変換になるため切り替わりがなめらか）
+    const focus = Math.min(1, Math.max(0, (zoom - 1) / 1.2));
+    const fcx = cx + (bx - cx) * focus;
+    const fcy = cy + (by - cy) * focus;
+    ctx.translate(cx, cy);
+    ctx.scale(zoom, zoom);
+    ctx.translate(-fcx, -fcy);
 
-    // 外周ボウル（ボールが走るリム）
+    // ---- 外周ボウル（立体的な縁 + ボールが走る溝） ----
+    const bowlGrad = ctx.createRadialGradient(cx, cy, r * 0.95, cx, cy, r * 1.2);
+    bowlGrad.addColorStop(0, '#0c1631');
+    bowlGrad.addColorStop(0.45, '#1c2c58');
+    bowlGrad.addColorStop(0.75, '#2c4076');
+    bowlGrad.addColorStop(1, '#101a36');
     ctx.beginPath();
-    ctx.arc(cx, cy, r * 1.12, 0, Math.PI * 2);
-    ctx.fillStyle = '#101a36';
+    ctx.arc(cx, cy, r * 1.2, 0, Math.PI * 2);
+    ctx.fillStyle = bowlGrad;
     ctx.fill();
-    ctx.strokeStyle = '#2a3a66';
-    ctx.lineWidth = 2;
+    // 縁のハイライト（上からの光）
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * 1.185, -Math.PI * 0.95, -Math.PI * 0.05);
+    ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+    // ボールトラックの溝
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * 1.05, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+    ctx.lineWidth = r * 0.075;
     ctx.stroke();
 
-    // 番号つきポケット（色 = メンバー。金色のフレットで仕切る）
+    // ---- 番号つきポケット帯（外周のみ。色 = メンバー） ----
     const span = (Math.PI * 2) / pockets.length;
+    const bandOut = r * 0.98;
+    const bandIn = r * 0.6;
     for (let s = 0; s < pockets.length; s++) {
       const a0 = s * span + rot;
       const a1 = a0 + span;
@@ -367,20 +386,45 @@ export class RouletteView {
         ctx.shadowBlur = 22;
       }
       ctx.beginPath();
-      ctx.moveTo(cx, cy);
-      ctx.arc(cx, cy, r, a0, a1);
+      ctx.arc(cx, cy, bandOut, a0, a1);
+      ctx.arc(cx, cy, bandIn, a1, a0, true);
       ctx.closePath();
       ctx.fillStyle = COLORS[pockets[s] % COLORS.length];
       ctx.fill();
       ctx.shadowBlur = 0;
-      // フレット（仕切り）
-      ctx.strokeStyle = '#c8a23c';
-      ctx.lineWidth = 2;
+      ctx.restore();
+    }
+    // 帯の陰影（内側ほど沈み、外側は光る = コートの傾斜感）
+    const bandShade = ctx.createRadialGradient(cx, cy, bandIn, cx, cy, bandOut);
+    bandShade.addColorStop(0, 'rgba(0,0,0,0.34)');
+    bandShade.addColorStop(0.72, 'rgba(0,0,0,0)');
+    bandShade.addColorStop(1, 'rgba(255,255,255,0.13)');
+    ctx.beginPath();
+    ctx.arc(cx, cy, bandOut, 0, Math.PI * 2);
+    ctx.arc(cx, cy, bandIn, 0, Math.PI * 2, true);
+    ctx.fillStyle = bandShade;
+    ctx.fill();
+    // フレット（浮き彫りの仕切り）と番号
+    for (let s = 0; s < pockets.length; s++) {
+      const a0 = s * span + rot;
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(a0) * bandIn, cy + Math.sin(a0) * bandIn);
+      ctx.lineTo(cx + Math.cos(a0) * bandOut, cy + Math.sin(a0) * bandOut);
+      ctx.strokeStyle = '#7a6428';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(a0 - 0.006) * bandIn, cy + Math.sin(a0 - 0.006) * bandIn);
+      ctx.lineTo(cx + Math.cos(a0 - 0.006) * bandOut, cy + Math.sin(a0 - 0.006) * bandOut);
+      ctx.strokeStyle = '#ecd27a';
+      ctx.lineWidth = 1.2;
       ctx.stroke();
 
-      // ポケット番号
+      const dimmed = fx.spotlight !== -1 && s !== fx.spotlight;
       const mid = a0 + span / 2;
       const lr = r * 0.84;
+      ctx.save();
+      ctx.globalAlpha = dimmed ? 0.4 : 1;
       ctx.translate(cx + Math.cos(mid) * lr, cy + Math.sin(mid) * lr);
       ctx.rotate(mid + Math.PI / 2);
       ctx.fillStyle = '#0d1220';
@@ -390,12 +434,50 @@ export class RouletteView {
       ctx.restore();
     }
 
-    // 内側の飾りリング
+    // ---- 内側コーン（中心へ向かう傾斜） ----
+    const coneGrad = ctx.createRadialGradient(cx, cy - r * 0.08, r * 0.05, cx, cy, bandIn);
+    coneGrad.addColorStop(0, '#22366b');
+    coneGrad.addColorStop(1, '#0a1330');
     ctx.beginPath();
-    ctx.arc(cx, cy, r * 0.55, 0, Math.PI * 2);
+    ctx.arc(cx, cy, bandIn, 0, Math.PI * 2);
+    ctx.fillStyle = coneGrad;
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(cx, cy, bandIn, 0, Math.PI * 2);
     ctx.strokeStyle = '#c8a23c';
     ctx.lineWidth = 2.5;
     ctx.stroke();
+
+    // ---- ターレット（中央の回る取っ手。回転が見える） ----
+    for (let k = 0; k < 4; k++) {
+      const a = rot + (k * Math.PI) / 2;
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(a) * r * 0.05, cy + Math.sin(a) * r * 0.05);
+      ctx.lineTo(cx + Math.cos(a) * r * 0.22, cy + Math.sin(a) * r * 0.22);
+      ctx.strokeStyle = '#8f7a35';
+      ctx.lineWidth = r * 0.035;
+      ctx.lineCap = 'round';
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(cx + Math.cos(a) * r * 0.22, cy + Math.sin(a) * r * 0.22, r * 0.028, 0, Math.PI * 2);
+      ctx.fillStyle = '#e6c95e';
+      ctx.fill();
+    }
+    const hubGrad = ctx.createRadialGradient(
+      cx - r * 0.03,
+      cy - r * 0.03,
+      r * 0.01,
+      cx,
+      cy,
+      r * 0.1,
+    );
+    hubGrad.addColorStop(0, '#f6e6a2');
+    hubGrad.addColorStop(0.6, '#c8a23c');
+    hubGrad.addColorStop(1, '#6e5a20');
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * 0.1, 0, Math.PI * 2);
+    ctx.fillStyle = hubGrad;
+    ctx.fill();
 
     // 外周 LED（回転中: チェイス → 終盤: 点滅加速 → 停止後: ストロボ）
     for (let i = 0; i < LED_COUNT; i++) {
@@ -411,7 +493,7 @@ export class RouletteView {
         on = (i + Math.floor(fx.time / 70)) % 4 === 0;
       }
       ctx.beginPath();
-      ctx.arc(cx + Math.cos(a) * (r * 1.12 + 5), cy + Math.sin(a) * (r * 1.12 + 5), 3.4, 0, Math.PI * 2);
+      ctx.arc(cx + Math.cos(a) * (r * 1.2 + 7), cy + Math.sin(a) * (r * 1.2 + 7), 3.4, 0, Math.PI * 2);
       ctx.fillStyle = on ? color : '#3a3f55';
       if (on) {
         ctx.shadowColor = color;
