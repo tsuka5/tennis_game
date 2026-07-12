@@ -20,6 +20,7 @@ const menu = $('menu');
 const menuHome = $('menu-home');
 const menuJoin = $('menu-join');
 const menuGroup = $('menu-group');
+const menuPlay = $('menu-play');
 const menuPractice = $('menu-practice');
 const menuManage = $('menu-manage');
 const menuRoulette = $('menu-roulette');
@@ -99,9 +100,10 @@ function myName(): string {
 }
 
 function showPanel(
-  panel: 'home' | 'join' | 'group' | 'practice' | 'manage' | 'roulette' | 'friends',
+  panel: 'home' | 'play' | 'join' | 'group' | 'practice' | 'manage' | 'roulette' | 'friends',
 ): void {
   menuHome.hidden = panel !== 'home';
+  menuPlay.hidden = panel !== 'play';
   menuJoin.hidden = panel !== 'join';
   menuGroup.hidden = panel !== 'group';
   menuPractice.hidden = panel !== 'practice';
@@ -140,15 +142,20 @@ function toMenu(message?: string): void {
   menuToast.textContent = message ?? '';
 }
 
-// ===== ひとりで練習（CPU レベル選択 → 開始） =====
+// ===== あそぶ（上位ページ） =====
+$('btn-play').addEventListener('click', () => showPanel('play'));
+$('btn-play-back').addEventListener('click', () => showPanel('home'));
+
+// ===== ひとりで練習（試合形式 + CPU レベル選択 → 開始） =====
 $('btn-practice').addEventListener('click', () => showPanel('practice'));
-$('btn-practice-back').addEventListener('click', () => showPanel('home'));
+$('btn-practice-back').addEventListener('click', () => showPanel('play'));
 for (const lv of [1, 2, 3] as const) {
   $(`btn-cpu-${lv}`).addEventListener('click', () => {
     menu.hidden = true;
     menuToast.textContent = '';
     (document.activeElement as HTMLElement | null)?.blur();
-    practice = practiceGame(lv);
+    const games = Number(($('practice-games') as HTMLSelectElement).value);
+    practice = practiceGame(lv, Number.isFinite(games) ? games : 2);
   });
 }
 
@@ -189,7 +196,7 @@ $('btn-group-go').addEventListener('click', () => {
   });
 });
 
-$('btn-group-back').addEventListener('click', () => showPanel('home'));
+$('btn-group-back').addEventListener('click', () => showPanel('play'));
 
 // ===== ルームに参加 =====
 $('btn-join').addEventListener('click', () => {
@@ -230,7 +237,7 @@ joinInput.addEventListener('keydown', (e) => {
 $('btn-join-back').addEventListener('click', () => {
   party?.destroy();
   party = null;
-  showPanel('home');
+  showPanel('play');
 });
 
 // ===== グループ管理 =====
@@ -541,6 +548,95 @@ $('btn-lobby-history').addEventListener('click', () => {
 $('btn-history-close').addEventListener('click', () => {
   $('history-modal').hidden = true;
 });
+
+// ===== チュートリアル（初回は自動表示） =====
+const TUT_DONE_KEY = 'lucky-smash-tut-done';
+const TUT_SLIDES: { title: string; body: string }[] = [
+  {
+    title: '🎾 ようこそ！',
+    body:
+      '<p>ラッキースマッシュは<b>「テニスで勝ってポイントを貯めて、ルーレットを回す」</b>パーティーゲーム。</p>' +
+      '<ul><li>💥 罰ゲームルーレット: ポイントが<b>多いほど当たりにくい</b></li>' +
+      '<li>🎁 ご褒美ルーレット: ポイントが<b>多いほど当たりやすい</b></li>' +
+      '<li>つまり…勝てば勝つほど安全でおいしい！</li></ul>',
+  },
+  {
+    title: '🕹 うごく・うつ',
+    body:
+      '<ul><li>移動: 画面<b>左半分</b>のスティック（PC は WASD / 矢印）</li>' +
+      '<li>打つ: 画面<b>右半分をフリック</b>（PC はマウス）</li>' +
+      '<li>フリック中は <b>→ 矢印・飛んでいく軌道・パワーゲージ</b> が表示される</li>' +
+      '<li><b>赤い表示はアウトコース</b>。速く長くフリックするほど強い</li>' +
+      '<li>ゆっくり長くなぞると<b>ロブ</b>（頭上を抜く山なりボール）</li></ul>',
+  },
+  {
+    title: '🎯 サーブ',
+    body:
+      '<ul><li>サーブもフリック。<b>向きと強さ</b>で狙う</li>' +
+      '<li>ネットの向こうの<b>対角のサービスボックス</b>に入れないとフォルト</li>' +
+      '<li>強すぎるとボックスを越えてフォルト。2回失敗でダブルフォルト</li>' +
+      '<li>青いリングは飛んでいるボールの<b>着地予測</b>。そこへ走ろう</li></ul>',
+  },
+  {
+    title: '💰 ポイントの貯め方',
+    body:
+      '<ul><li>はじめて参加すると <b>+100pt</b></li>' +
+      '<li>試合に勝つと <b>+100pt</b>。負けても取ったゲーム×20pt</li>' +
+      '<li><b>対戦前ベット</b>: 賭けて勝てば総取り</li>' +
+      '<li><b>観戦予想</b>: 勝者を当てると同額ゲット</li>' +
+      '<li>増減はぜんぶ履歴に記録。ロビーの「📜 ポイント履歴」で誰でも確認できる</li></ul>',
+  },
+  {
+    title: '🎰 さあ、はじめよう',
+    body:
+      '<p>まずは「🎾 あそんでポイントを貯める → 🤖 ひとりで練習」で<b>🐣よわいCPU</b>と1ゲーム。</p>' +
+      '<p>友達と遊ぶときは「🏟 パーティールームを作る」でコードを<b>LINEで招待</b>！</p>' +
+      '<p>ポイントが貯まったらホームの<b>🎰 ルーレット</b>で運命の抽選です。</p>',
+  },
+];
+let tutIndex = 0;
+
+function renderTutorial(): void {
+  const s = TUT_SLIDES[tutIndex];
+  $('tut-step').textContent = `${tutIndex + 1} / ${TUT_SLIDES.length}`;
+  $('tut-body').innerHTML = `<div class="tut-title">${s.title}</div>${s.body}`;
+  ($('btn-tut-prev') as HTMLButtonElement).disabled = tutIndex === 0;
+  $('btn-tut-next').textContent = tutIndex === TUT_SLIDES.length - 1 ? 'はじめる！' : 'つぎ →';
+}
+
+function openTutorial(): void {
+  tutIndex = 0;
+  renderTutorial();
+  $('tutorial').hidden = false;
+}
+
+function closeTutorial(): void {
+  $('tutorial').hidden = true;
+  try {
+    localStorage.setItem(TUT_DONE_KEY, '1');
+  } catch {
+    /* noop */
+  }
+}
+
+$('btn-tutorial').addEventListener('click', openTutorial);
+$('btn-tut-skip').addEventListener('click', closeTutorial);
+$('btn-tut-prev').addEventListener('click', () => {
+  if (tutIndex > 0) {
+    tutIndex--;
+    renderTutorial();
+  }
+});
+$('btn-tut-next').addEventListener('click', () => {
+  if (tutIndex < TUT_SLIDES.length - 1) {
+    tutIndex++;
+    renderTutorial();
+  } else {
+    closeTutorial();
+  }
+});
+// 初回起動時は自動で表示
+if (!localStorage.getItem(TUT_DONE_KEY)) openTutorial();
 
 // ===== あそびかたヘルプ =====
 for (const id of ['btn-help', 'btn-help-home']) {

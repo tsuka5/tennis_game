@@ -549,13 +549,13 @@ export class Game {
   }
 }
 
-export function practiceGame(aiLevel: AiLevel = 2): Game {
+export function practiceGame(aiLevel: AiLevel = 2, gamesToWin: number = PRACTICE_GAMES_TO_WIN): Game {
   const names: Record<AiLevel, string> = { 1: 'CPU よわい', 2: 'CPU ふつう', 3: 'CPU つよい' };
   return new Game({
     authority: true,
     playerIdx: 0,
     names: ['あなた', names[aiLevel]],
-    gamesToWin: PRACTICE_GAMES_TO_WIN,
+    gamesToWin,
     practice: true,
     aiLevel,
     net: null,

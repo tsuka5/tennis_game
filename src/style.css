@@ -126,6 +126,27 @@ body {
   background: #d9ff5e;
 }
 
+/* 🎰 ルーレット = このゲームの最終目的。いちばん目立たせる */
+.btn.roulette {
+  background: linear-gradient(135deg, #ffd700, #ff8a00);
+  border-color: #ffd700;
+  color: #2a1602;
+  font-weight: 900;
+  font-size: 17px;
+  box-shadow: 0 6px 26px #ffb34055;
+  animation: roulette-glow 1.8s ease-in-out infinite;
+}
+
+.btn.roulette:hover {
+  background: linear-gradient(135deg, #ffe14d, #ffa02e);
+}
+
+@keyframes roulette-glow {
+  50% {
+    box-shadow: 0 6px 42px #ffd700aa;
+  }
+}
+
 .hint-line {
   font-size: 12px;
   line-height: 1.7;
@@ -333,13 +354,33 @@ body {
   font-size: 13px;
 }
 
-/* ===================== あそびかたヘルプ / 履歴モーダル ===================== */
+/* ===================== あそびかたヘルプ / 履歴 / チュートリアル ===================== */
 .history-list.modal-history {
   max-height: 62vh;
 }
 
+.tut-step {
+  font-size: 12px;
+  letter-spacing: 0.2em;
+  opacity: 0.55;
+  margin-bottom: 2px;
+}
+
+#tut-body .tut-title {
+  margin: 4px 0 10px;
+  font-size: 21px;
+  font-weight: 900;
+  font-style: italic;
+  color: var(--accent);
+}
+
+#tut-body {
+  min-height: 180px;
+}
+
 #help,
-#history-modal {
+#history-modal,
+#tutorial {
   position: fixed;
   inset: 0;
   z-index: 400;
