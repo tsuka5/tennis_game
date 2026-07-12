@@ -3,20 +3,25 @@
  * （回転演出だけを各画面でローカルに行い、結果は全員同じ）。
  * セグメント幅 = ポイントから計算した確率（%）。
  *
- * パチンコ風の演出:
- * - 高速回転 → 長い減速 → 境界ぎわでギリギリ止まる「じらし」
- * - 目盛りを跨ぐたびにカチカチ音 + 矢印が跳ねる
- * - 外周LEDのチェイス点滅（終盤は点滅が加速、当選後はストロボ）
- * - 終盤は矢印の下のセグメントだけスポットライト（他は暗転）
- * - 停止時の画面シェイク → タメ → 結果がドンと出て紙吹雪 + 効果音
+ * カジノルーレット式:
+ * - ホイールが回り、ボールが逆方向にリムを周回 → 減速して内側へ螺旋降下
+ * - 決まる瞬間はスローモーション + ボールへズームイン。当選枠と隣の枠の
+ *   境界でカタカタと弾んでから落ちる（どっちに入るかの緊張感）
+ * - 着地後はオリパ風のレア度演出（確率が低いほど豪華: 青 → 金 → 虹）
  */
 import { sfx } from '../core/audio';
 import type { RouletteKind } from '../net/protocol';
 
 const COLORS = ['#e8452c', '#27b7e8', '#ccff33', '#f2a33c', '#9d6bf2', '#3ce8a0', '#f25c9a', '#5c7cf2'];
 const LED_COUNT = 28;
-/** 回転の総時間 (ms)。長めにとって減速のじらしを効かせる */
-const SPIN_MS = 6600;
+
+// タイムライン（ゲーム内秒。クライマックスはスローモーションで実時間が伸びる）
+const T_SPIN = 2.6; // ボールがリムを高速周回
+const T_DESC = 1.7; // 内側へ螺旋降下
+const T_CLIMAX = 0.5; // 境界ぎわのカタカタ（この間だけ超スロー）
+const T_TOTAL = T_SPIN + T_DESC + T_CLIMAX;
+/** クライマックスの時間倍率（0.16 = 約6倍スロー） */
+const SLOWMO = 0.16;
 
 export interface RouletteEntry {
   name: string;
@@ -78,29 +83,40 @@ export class RouletteView {
       }
       acc += span;
     }
-    // 境界ぎわに止めて「入った！/危なかった！」のギリギリ感を出す
-    // （セグメントが狭いときは中央寄りに逃がす）
+    // 境界ぎわに落として「ギリギリ感」を出す（狭い枠は中央寄りに逃がす）
     const edge =
       winSpan > 0.4
         ? Math.random() < 0.5
-          ? 0.1 + Math.random() * 0.16
-          : 0.74 + Math.random() * 0.16
+          ? 0.1 + Math.random() * 0.15
+          : 0.75 + Math.random() * 0.15
         : 0.3 + Math.random() * 0.4;
     const landing = winStart + winSpan * edge;
-    const spins = 5 + Math.floor(Math.random() * 2);
-    const finalRot = -Math.PI / 2 - landing + Math.PI * 2 * spins;
+    // カタカタは近い側の境界を跨ぐ（境界までの距離より大きい振幅で往復）
+    const distToEdge = Math.min(landing - winStart, winStart + winSpan - landing);
+    const wobSign = edge < 0.5 ? -1 : 1;
+    const wobAmp = Math.min(distToEdge * 2.4 + 0.05, 0.5);
 
-    const start = performance.now();
+    const wheelSpins = 4;
+    const finalRot = Math.PI * 2 * wheelSpins;
+    // ホイールに対して逆方向の周回数。ホイール回転と相殺しても
+    // 世界座標で十分速く逆走して見えるよう多めに回す
+    const ballSpins = 9;
+    const climaxStart = T_SPIN + T_DESC;
+
+    let tau = 0; // ゲーム内時間
+    let lastNow = performance.now();
+    let zoom = 1;
+    let zoomTarget = 1;
     let lastIdx = -1;
-    let pointerKick = 0;
     let shake = 0;
     let stopped = false;
+    let stopAt = 0;
     const particles: Particle[] = [];
 
-    // 矢印（真上 = -PI/2）の下にあるセグメント番号
-    const segAt = (rot: number): number => {
+    // ボールのホイール内角度からセグメント番号
+    const segAtLocal = (a0: number): number => {
       const twoPi = Math.PI * 2;
-      let a = (-Math.PI / 2 - rot) % twoPi;
+      let a = a0 % twoPi;
       if (a < 0) a += twoPi;
       for (let i = 0; i < spans.length; i++) {
         if (a >= spans[i].from && a < spans[i].from + spans[i].span) return i;
@@ -109,29 +125,48 @@ export class RouletteView {
     };
 
     const tick = (now: number): void => {
-      const u = Math.min(1, (now - start) / SPIN_MS);
-      const ease = 1 - Math.pow(1 - u, 3.6); // 長い尻尾の減速カーブ
-      const rot = finalRot * ease;
+      const dtReal = Math.min(0.05, (now - lastNow) / 1000);
+      lastNow = now;
+      const scale = tau > climaxStart && tau < T_TOTAL ? SLOWMO : 1;
+      tau = Math.min(T_TOTAL, tau + dtReal * scale);
+      const u = tau / T_TOTAL;
 
-      const idx = segAt(rot);
+      // ホイール回転（長い尻尾で減速）
+      const rotW = finalRot * (1 - Math.pow(1 - u, 2.6));
+
+      // ボール: ホイールに対する相対角。降下完了までに landing 付近へ収束
+      const xl = Math.min(1, tau / climaxStart);
+      let local = landing + Math.PI * 2 * ballSpins * Math.pow(1 - xl, 2.2);
+      // 半径: リム → ポケットへ螺旋降下
+      const desc = Math.min(1, Math.max(0, (tau - T_SPIN) / T_DESC));
+      let rFrac = 1.06 - 0.27 * (1 - Math.pow(1 - desc, 2)); // 1.06 → 0.79
+      let p = 0;
+      if (tau > climaxStart) {
+        // クライマックス: 境界を跨いで戻るダンピング振動 + 小さなホップ
+        p = (tau - climaxStart) / T_CLIMAX;
+        local = landing + wobSign * wobAmp * Math.exp(-2.8 * p) * Math.cos(p * Math.PI * 2.5);
+        rFrac = 0.79 + 0.045 * Math.exp(-2.5 * p) * Math.abs(Math.sin(p * Math.PI * 2.5));
+        zoomTarget = 2.7;
+      }
+      zoom += (zoomTarget - zoom) * Math.min(1, dtReal * 4.5);
+
+      // ボールがセグメント境界を跨ぐたびにカチッ（クライマックスのカタカタも同じ経路で鳴る）
+      const idx = segAtLocal(local);
       if (idx !== lastIdx) {
-        if (lastIdx !== -1) {
-          sfx.rlTick(u);
-          pointerKick = 1;
-        }
+        if (lastIdx !== -1 && !stopped) sfx.rlTick(tau > climaxStart ? 1 : u);
         lastIdx = idx;
       }
-      pointerKick = Math.max(0, pointerKick - 0.09);
       shake = Math.max(0, shake - 0.035);
 
-      if (u >= 1 && !stopped) {
+      if (tau >= T_TOTAL && !stopped) {
         stopped = true;
+        stopAt = now;
         shake = 1;
+        zoomTarget = 1.18; // 引きながら結果発表
         // オリパ風: 当選確率でレア度が決まる（低いほど豪華）
         const pct = entries[winner]?.pct ?? 100;
         const tier = pct < 10 ? 'tier-epic' : pct < 30 ? 'tier-rare' : 'tier-common';
         const epic = tier === 'tier-epic';
-        // 停止 → オーラ点灯 + 鼓動でタメる（レアほど長く焦らす）
         this.auraEl.className = `${tier} on`;
         const beats = epic ? [60, 260, 430, 570, 690, 800] : [80, 330, 560];
         for (const bt of beats) this.timers.push(window.setTimeout(() => sfx.rlHeart(), bt));
@@ -151,7 +186,6 @@ export class RouletteView {
               else sfx.rlFanfare();
               this.spawnConfetti(particles, kind);
               if (epic) {
-                // 虹はファンファーレ重ねがけ + 紙吹雪の波状攻撃
                 this.timers.push(window.setTimeout(() => sfx.rlFanfare(), 350));
                 this.timers.push(window.setTimeout(() => this.spawnConfetti(particles, kind), 500));
                 this.timers.push(window.setTimeout(() => this.spawnConfetti(particles, kind), 1000));
@@ -163,18 +197,25 @@ export class RouletteView {
         );
       }
 
-      this.draw(entries, spans, rot, {
-        time: now,
-        u,
-        spotlight: u > 0.82 && !stopped ? lastIdx : stopped ? winner : -1,
-        pointerKick,
-        shake,
-        stopped,
-        particles,
-      });
+      this.draw(
+        entries,
+        spans,
+        rotW,
+        {
+          time: now,
+          u,
+          spotlight: tau > climaxStart ? lastIdx : -1,
+          stopped,
+          shake,
+          particles,
+          ballLocal: local,
+          ballR: rFrac,
+        },
+        zoom,
+      );
 
-      // 紙吹雪が消えるまで描き続ける
-      if (!stopped || particles.length > 0 || now - start < SPIN_MS + 5500) {
+      // 結果演出（紙吹雪の波・LEDストロボ）が終わるまで描き続ける
+      if (!stopped || particles.length > 0 || now - stopAt < 4500) {
         this.raf = requestAnimationFrame(tick);
       }
     };
@@ -211,13 +252,16 @@ export class RouletteView {
     fx: {
       time: number;
       u: number;
-      /** 強調するセグメント（-1 = なし。他は暗転する） */
       spotlight: number;
-      pointerKick: number;
-      shake: number;
       stopped: boolean;
+      shake: number;
       particles: Particle[];
+      /** ボールのホイール内角度 */
+      ballLocal: number;
+      /** ボール半径（ホイール半径比） */
+      ballR: number;
     },
+    zoom: number,
   ): void {
     const c = this.canvas;
     const dpr = Math.min(window.devicePixelRatio, 2);
@@ -230,13 +274,33 @@ export class RouletteView {
     ctx.scale(dpr, dpr);
     const cx = size / 2;
     const cy = size / 2;
-    const r = size / 2 - 22;
+    const r = size / 2 - 26;
+
+    // ボールのキャンバス座標
+    const ballA = rot + fx.ballLocal;
+    const bx = cx + Math.cos(ballA) * r * fx.ballR;
+    const by = cy + Math.sin(ballA) * r * fx.ballR;
 
     ctx.clearRect(0, 0, size, size);
     ctx.save();
     if (fx.shake > 0) {
       ctx.translate((Math.random() * 2 - 1) * 7 * fx.shake, (Math.random() * 2 - 1) * 7 * fx.shake);
     }
+    // ズームカメラ（ボール中心）
+    if (zoom > 1.01) {
+      ctx.translate(cx, cy);
+      ctx.scale(zoom, zoom);
+      ctx.translate(-bx, -by);
+    }
+
+    // 外周ボウル（ボールが走るリム）
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * 1.12, 0, Math.PI * 2);
+    ctx.fillStyle = '#101a36';
+    ctx.fill();
+    ctx.strokeStyle = '#2a3a66';
+    ctx.lineWidth = 2;
+    ctx.stroke();
 
     // セグメント
     for (let i = 0; i < entries.length; i++) {
@@ -274,7 +338,7 @@ export class RouletteView {
       ctx.restore();
     }
 
-    // 外周 LED（回転中: チェイス → 終盤: 全点滅が加速 → 停止後: ストロボ）
+    // 外周 LED（回転中: チェイス → 終盤: 点滅加速 → 停止後: ストロボ）
     for (let i = 0; i < LED_COUNT; i++) {
       const a = (i / LED_COUNT) * Math.PI * 2;
       let on: boolean;
@@ -288,7 +352,7 @@ export class RouletteView {
         on = (i + Math.floor(fx.time / 70)) % 4 === 0;
       }
       ctx.beginPath();
-      ctx.arc(cx + Math.cos(a) * (r + 11), cy + Math.sin(a) * (r + 11), 3.4, 0, Math.PI * 2);
+      ctx.arc(cx + Math.cos(a) * (r * 1.12 + 5), cy + Math.sin(a) * (r * 1.12 + 5), 3.4, 0, Math.PI * 2);
       ctx.fillStyle = on ? color : '#3a3f55';
       if (on) {
         ctx.shadowColor = color;
@@ -304,21 +368,24 @@ export class RouletteView {
     ctx.fillStyle = '#eaf2ff';
     ctx.fill();
 
-    // 上部の矢印（目盛り通過で跳ねる）
-    const kick = fx.pointerKick;
-    ctx.save();
-    ctx.translate(cx, 6);
-    ctx.scale(1 + kick * 0.35, 1 + kick * 0.35);
+    // ボール（白球 + ハイライト + 落ち影）
+    const br = Math.max(5, size * 0.016);
     ctx.beginPath();
-    ctx.moveTo(-12, 0);
-    ctx.lineTo(12, 0);
-    ctx.lineTo(0, 28);
-    ctx.closePath();
-    ctx.fillStyle = kick > 0.4 ? '#ffffff' : '#ccff33';
+    ctx.ellipse(bx + br * 0.3, by + br * 0.5, br * 0.9, br * 0.5, 0, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
     ctx.fill();
+    const grad = ctx.createRadialGradient(bx - br * 0.35, by - br * 0.35, br * 0.15, bx, by, br);
+    grad.addColorStop(0, '#ffffff');
+    grad.addColorStop(0.6, '#e8edf6');
+    grad.addColorStop(1, '#9aa7bd');
+    ctx.beginPath();
+    ctx.arc(bx, by, br, 0, Math.PI * 2);
+    ctx.fillStyle = grad;
+    ctx.fill();
+
     ctx.restore();
 
-    // 紙吹雪
+    // 紙吹雪（ズームの外＝画面空間で描く）
     const dt = 1 / 60;
     for (let i = fx.particles.length - 1; i >= 0; i--) {
       const p = fx.particles[i];
@@ -339,8 +406,6 @@ export class RouletteView {
       ctx.fillRect(-4, -2.5, 8, 5);
       ctx.restore();
     }
-
-    ctx.restore();
   }
 
   hide(): void {
