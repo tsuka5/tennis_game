@@ -21,8 +21,8 @@
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cpath d='M55,68 L55,41 A27,27 0 0 1 78.4,54.5 Z' fill='%23e8452c'/%3E%3Cpath d='M55,68 L78.4,54.5 A27,27 0 0 1 78.4,81.5 Z' fill='%23f2a33c'/%3E%3Cpath d='M55,68 L78.4,81.5 A27,27 0 0 1 55,95 Z' fill='%23ccff33'/%3E%3Cpath d='M55,68 L55,95 A27,27 0 0 1 31.6,81.5 Z' fill='%2327b7e8'/%3E%3Cpath d='M55,68 L31.6,81.5 A27,27 0 0 1 31.6,54.5 Z' fill='%239d6bf2'/%3E%3Cpath d='M55,68 L31.6,54.5 A27,27 0 0 1 55,41 Z' fill='%233ce8a0'/%3E%3Ccircle cx='55' cy='68' r='27' fill='none' stroke='%23eaf2ff' stroke-width='3'/%3E%3Ccircle cx='55' cy='68' r='6' fill='%23eaf2ff'/%3E%3Cline x1='24' y1='26' x2='35' y2='39' stroke='%23f2a33c' stroke-width='5' stroke-linecap='round'/%3E%3Cellipse cx='16' cy='16' rx='11' ry='14' transform='rotate(-35 16 16)' fill='%2314224a' stroke='%23eaf2ff' stroke-width='3'/%3E%3Cline x1='31' y1='13' x2='40' y2='16' stroke='%23eaf2ff' stroke-width='2' stroke-linecap='round' opacity='0.7'/%3E%3Cline x1='31' y1='20' x2='40' y2='21' stroke='%23eaf2ff' stroke-width='2' stroke-linecap='round' opacity='0.7'/%3E%3Ccircle cx='54' cy='22' r='9' fill='%23ccff33' stroke='%2310210a' stroke-width='1.5'/%3E%3Cpath d='M46,19 Q54,26 62,19' fill='none' stroke='%2310210a' stroke-width='1.5'/%3E%3C/svg%3E"
     />
-    <script type="module" crossorigin src="./assets/index-to5H0-_h.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-BzErg-Wp.css">
+    <script type="module" crossorigin src="./assets/index-C_XP_D5C.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-sSgTDIGM.css">
   </head>
   <body>
     <div id="app"></div>
@@ -34,20 +34,24 @@
 
         <div id="menu-home">
           <input id="name-input" class="name-input" maxlength="8" placeholder="なまえ（8文字まで）" autocomplete="off" />
+          <button id="btn-solo-roulette" class="btn big roulette">🎰 ルーレットを回す</button>
+          <button id="btn-play" class="btn big primary">🎾 あそんでポイントを貯める</button>
+          <button id="btn-manage" class="btn big">📊 ポイント・グループ管理</button>
+          <button id="btn-friends" class="btn big">👥 フレンド</button>
+          <div class="btn-pair">
+            <button id="btn-tutorial" class="btn subtle">🔰 チュートリアル</button>
+            <button id="btn-help-home" class="btn subtle">？ あそびかた</button>
+          </div>
+          <p id="menu-toast" class="hint-line" style="color: #ff9f9f"></p>
+        </div>
+
+        <div id="menu-play" hidden>
+          <p class="panel-label">あそんでポイントを貯める</p>
           <button id="btn-create" class="btn big primary">🏟 パーティールームを作る</button>
           <button id="btn-join" class="btn big">🔑 ルームに参加</button>
-          <button id="btn-practice" class="btn big">🎾 ひとりで練習（CPU対戦）</button>
-          <div class="btn-pair">
-            <button id="btn-friends" class="btn">👥 フレンド</button>
-            <button id="btn-manage" class="btn">📁 グループ管理</button>
-            <button id="btn-solo-roulette" class="btn">🎰 ルーレット</button>
-          </div>
-          <button id="btn-help-home" class="btn subtle">？ あそびかた</button>
-          <p class="hint-line">
-            みんなで集まって勝ち残り戦。対戦や賭けでポイントを貯めると<br />
-            罰ゲーム/ご褒美ルーレットの確率が変わります
-          </p>
-          <p id="menu-toast" class="hint-line" style="color: #ff9f9f"></p>
+          <button id="btn-practice" class="btn big">🤖 ひとりで練習（CPU対戦）</button>
+          <p class="hint-line">みんなで勝ち残り戦。勝利・ベット・観戦予想でポイントが増減します</p>
+          <button id="btn-play-back" class="btn">← 戻る</button>
         </div>
 
         <div id="menu-group" hidden>
@@ -71,7 +75,16 @@
         </div>
 
         <div id="menu-practice" hidden>
-          <p class="panel-label">CPU のつよさ</p>
+          <p class="panel-label">CPU 対戦</p>
+          <div class="lobby-row-controls">
+            <label for="practice-games">試合形式</label>
+            <select id="practice-games">
+              <option value="0">1ポイント（サドンデス）</option>
+              <option value="1">1ゲーム（サクサク）</option>
+              <option value="2" selected>2ゲーム先取</option>
+              <option value="4">4ゲーム先取（じっくり）</option>
+            </select>
+          </div>
           <button id="btn-cpu-1" class="btn big">🐣 よわい</button>
           <button id="btn-cpu-2" class="btn big primary">🎾 ふつう</button>
           <button id="btn-cpu-3" class="btn big">🔥 つよい</button>
@@ -212,6 +225,19 @@
         <h2 class="help-title">📜 ポイント履歴</h2>
         <div id="history-modal-list" class="history-list modal-history"></div>
         <button id="btn-history-close" class="btn big primary">とじる</button>
+      </div>
+    </div>
+
+    <!-- ===== チュートリアル（初回は自動表示） ===== -->
+    <div id="tutorial" hidden>
+      <div class="help-card">
+        <div id="tut-step" class="tut-step"></div>
+        <div id="tut-body" class="help-body"></div>
+        <div class="btn-pair">
+          <button id="btn-tut-prev" class="btn">← まえ</button>
+          <button id="btn-tut-next" class="btn big primary">つぎ →</button>
+        </div>
+        <button id="btn-tut-skip" class="btn subtle">スキップ</button>
       </div>
     </div>
 
