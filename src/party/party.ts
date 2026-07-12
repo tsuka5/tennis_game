@@ -314,27 +314,17 @@ export class PartyHost {
   }
 
   private refreshLobby(): void {
+    // ポイントの手動調整はロビーには置かない（ホーム → グループ管理 で行う）
     renderLobby(this.memberList, this.championId, {
       code: this.code,
       group: this.ledger.ref.name,
       banner: this.banner,
       isHost: true,
-      onAdjust: (name, delta) => void this.adjust(name, delta),
     });
     // ベット中は renderLobby が戻したホスト操作を再び隠してパネルを出す
     if (this.betting) this.renderBet();
     else renderBetPanel(null);
     this.net.broadcast(this.lobbyMsg());
-  }
-
-  /** ポイントの動的調整（永続化し、全員に見えるようバナーでも告知） */
-  private async adjust(name: string, delta: number): Promise<void> {
-    const member = this.memberList.find((m) => m.name === name);
-    if (!member) return;
-    const stats = await this.ledger.adjustPoints(name, delta, '手動調整');
-    Object.assign(member, stats);
-    this.banner = `⚖️ ホストが ${name} に ${delta > 0 ? '+' : ''}${delta}pt（手動調整）`;
-    this.refreshLobby();
   }
 
   private onData(id: string, m: ClientMsg): void {

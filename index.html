@@ -271,6 +271,8 @@
       <div id="msg"></div>
       <div id="spectating" hidden>👀 観戦中</div>
       <div id="serve-hint" hidden>フリックでサーブ！ 向きと強さで対角のサービスボックスを狙おう（軌道が出ます）</div>
+      <!-- フリック中のパワーゲージ -->
+      <div id="flick-meter" hidden><div id="flick-meter-fill"></div></div>
       <div id="kbd-hint">
         移動: WASD / 矢印　　打つ: マウスでフリック — 飛んでいく軌道が表示される／速く長いほど強い／ゆっくり = ロブ
       </div>
@@ -290,12 +292,6 @@
 
     <!-- 全画面切り替え（Fullscreen API 非対応端末では JS 側で非表示のまま） -->
     <button id="btn-fullscreen" title="全画面にする" hidden>⛶</button>
-
-    <!-- 縦画面ガイド -->
-    <div id="rotate-overlay">
-      <div class="icon">📱</div>
-      <div>端末を横にしてください</div>
-    </div>
 
     <script type="module" src="/src/main.ts"></script>
   </body>

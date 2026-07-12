@@ -620,6 +620,27 @@ body {
   width: min(280px, 80vw);
 }
 
+/* フリック中のパワーゲージ */
+#flick-meter {
+  position: absolute;
+  bottom: 12%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(240px, 44vw);
+  height: 12px;
+  border-radius: 999px;
+  background: #ffffff1e;
+  border: 1px solid #ffffff40;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+#flick-meter-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+}
+
 #spectating {
   position: absolute;
   top: 16px;
@@ -857,46 +878,6 @@ body {
   font-size: 15px;
   opacity: 0.8;
   margin: 8px 0 22px;
-}
-
-/* ===================== 縦画面ガイド ===================== */
-#rotate-overlay {
-  position: fixed;
-  inset: 0;
-  display: none;
-  align-items: center;
-  justify-content: center;
-  flex-direction: column;
-  gap: 16px;
-  background: var(--navy-0);
-  color: var(--text);
-  z-index: 9999;
-  text-align: center;
-  padding: 24px;
-  font-weight: 700;
-}
-
-#rotate-overlay .icon {
-  font-size: 64px;
-  animation: rot 1.8s ease-in-out infinite;
-}
-
-@keyframes rot {
-  0%,
-  40% {
-    transform: rotate(0deg);
-  }
-
-  60%,
-  100% {
-    transform: rotate(-90deg);
-  }
-}
-
-@media (orientation: portrait) and (pointer: coarse) {
-  #rotate-overlay {
-    display: flex;
-  }
 }
 
 /* ===================== 全画面ボタン ===================== */

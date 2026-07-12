@@ -103,13 +103,13 @@ export function planShot(
   let t: number;
   let margin: number;
   if (cmd.kind === 'lob') {
-    t = 1.9 - 0.5 * power;
+    t = 2.0 - 0.5 * power;
     margin = 1.7;
   } else if (smash) {
-    t = 0.72 - 0.3 * power;
+    t = 0.8 - 0.3 * power;
     margin = 0.05;
   } else {
-    t = 1.1 - 0.52 * power;
+    t = 1.2 - 0.5 * power;
     margin = 0.42 - 0.3 * power;
   }
   return { tx, tz, t, margin, smash };
@@ -130,7 +130,7 @@ export function planServe(
   return {
     tx: pl.x + ux * s * dist,
     tz: pl.z - uy * s * dist,
-    t: 1.0 - 0.45 * power,
+    t: 1.1 - 0.42 * power,
     margin: 0.2,
   };
 }

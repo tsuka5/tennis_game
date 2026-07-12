@@ -77,14 +77,6 @@ window.addEventListener('pointerdown', () => sfx.unlock(), { once: true });
           await (doc.exitFullscreen ?? doc.webkitExitFullscreen)!.call(doc);
         } else {
           await (root.requestFullscreen ?? root.webkitRequestFullscreen)!.call(root);
-          // ゲームは横画面前提なので、可能なら横向きに固定（非対応環境は無視）
-          try {
-            await (screen.orientation as unknown as {
-              lock?: (o: string) => Promise<void>;
-            }).lock?.('landscape');
-          } catch {
-            /* noop */
-          }
         }
       } catch {
         /* ユーザー操作起点でない等で失敗しても無視 */

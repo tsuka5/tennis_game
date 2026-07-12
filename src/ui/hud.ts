@@ -12,6 +12,8 @@ export class Hud {
   private readonly root = $('hud');
   private readonly msg = $('msg');
   private readonly serveHint = $('serve-hint');
+  private readonly flickMeter = $('flick-meter');
+  private readonly flickMeterFill = $('flick-meter-fill');
   private readonly result = $('result');
   private readonly resultTitle = $('result-title');
   private readonly resultDetail = $('result-detail');
@@ -24,6 +26,7 @@ export class Hud {
     this.result.hidden = true;
     this.msg.classList.remove('show');
     this.serveHint.hidden = true;
+    this.flickMeter.hidden = true;
   }
 
   hide(): void {
@@ -51,6 +54,14 @@ export class Hud {
 
   setServeHint(visible: boolean): void {
     this.serveHint.hidden = !visible;
+  }
+
+  /** フリック中のパワーゲージ 0..1（null で非表示。緑=弱 → 赤=強） */
+  setFlickPower(p: number | null): void {
+    this.flickMeter.hidden = p === null;
+    if (p === null) return;
+    this.flickMeterFill.style.width = `${Math.round(p * 100)}%`;
+    this.flickMeterFill.style.background = `hsl(${Math.round(120 * (1 - p))}, 90%, 55%)`;
   }
 
   showResult(won: boolean, detail: string): void {

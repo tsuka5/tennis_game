@@ -142,9 +142,10 @@ export class Controls {
   /** フリックベクトル(px) → 方向と強さ。画面上方向 = 前（ネット方向） */
   private metrics(dx: number, dyDown: number): { dirX: number; dirY: number; power: number } {
     const len = Math.hypot(dx, dyDown);
+    // 鈍め: 画面の約半分フリックしてフルパワー（細かい力加減がしやすい）
     const power = Math.max(
       0.1,
-      Math.min(1, len / (Math.min(window.innerWidth, window.innerHeight) * 0.34)),
+      Math.min(1, len / (Math.min(window.innerWidth, window.innerHeight) * 0.48)),
     );
     return { dirX: dx, dirY: -dyDown, power };
   }

@@ -22,6 +22,7 @@ import type { SwipeShot } from '../ui/controls';
 import { Hud } from '../ui/hud';
 import { BallView } from '../view/BallView';
 import { KIT_AWAY, KIT_HOME, PlayerView } from '../view/PlayerView';
+import { ArrowView } from '../view/ArrowView';
 import { ServeAimView } from '../view/ServeAimView';
 import { TrajectoryView } from '../view/TrajectoryView';
 import { buildStadium } from '../view/Stadium';
@@ -67,6 +68,8 @@ export class Game {
   private readonly returnAimView: ServeAimView;
   /** フリック中の「これから飛ぶ軌道」曲線 */
   private readonly trajectoryView: TrajectoryView;
+  /** フリック中の「飛ばす方向 →」矢印 */
+  private readonly arrowView: ArrowView;
   private landTarget: { x: number; z: number } | null = null;
   private landVKey = '';
   private landTimer = 0;
@@ -134,9 +137,11 @@ export class Game {
     this.landView = new ServeAimView(this.scene, { color: 0x4aa3ff, scale: 0.75, opacity: 0.8 });
     this.returnAimView = new ServeAimView(this.scene, { color: 0xccff33, scale: 0.6, opacity: 0.7 });
     this.trajectoryView = new TrajectoryView(this.scene);
+    this.arrowView = new ArrowView(this.scene);
 
     // カメラ: 対戦者は自陣後方の TV 視点、観戦者はサイドスタンド視点
     this.camera = new THREE.PerspectiveCamera(52, window.innerWidth / window.innerHeight, 0.1, 260);
+    this.applyFov();
     if (this.playerIdx !== null) {
       this.camPos.set(0, 8.0, this.s * (COURT.HALF_L + 9.6));
       this.camera.position.copy(this.camPos);
@@ -166,9 +171,15 @@ export class Game {
 
   private readonly onResize = (): void => {
     this.camera.aspect = window.innerWidth / window.innerHeight;
-    this.camera.updateProjectionMatrix();
+    this.applyFov();
     this.renderer.setSize(window.innerWidth, window.innerHeight);
   };
+
+  /** 縦画面では縦FOVを広げてコート全体が収まるようにする */
+  private applyFov(): void {
+    this.camera.fov = this.camera.aspect < 1 ? 66 : 52;
+    this.camera.updateProjectionMatrix();
+  }
 
   // ============ 入力 ============
 
@@ -308,10 +319,19 @@ export class Game {
         path = simulatePath(from, v);
         preview = { x: plan.tx, z: plan.tz, power: 0 };
         previewColor = out ? 0xff5050 : undefined;
+        this.arrowView.update(from, { x: plan.tx, z: plan.tz }, live.power, previewColor ?? 0xccff33);
+      } else {
+        this.arrowView.update(null);
       }
+    } else {
+      this.arrowView.update(null);
     }
     this.returnAimView.update(dt, preview, previewColor);
     this.trajectoryView.update(path, previewColor ?? 0xccff33);
+    // フリック中のパワーゲージ（対戦者のみ）
+    if (this.playerIdx !== null && this.controls) {
+      this.hud.setFlickPower(this.controls.live.active ? this.controls.live.power : null);
+    }
   }
 
   /** 手動移動（スティック/WASD）。サーブ待ちのサーバーはベースライン上に拘束 */
