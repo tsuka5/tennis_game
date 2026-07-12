@@ -21,8 +21,8 @@
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cpath d='M55,68 L55,41 A27,27 0 0 1 78.4,54.5 Z' fill='%23e8452c'/%3E%3Cpath d='M55,68 L78.4,54.5 A27,27 0 0 1 78.4,81.5 Z' fill='%23f2a33c'/%3E%3Cpath d='M55,68 L78.4,81.5 A27,27 0 0 1 55,95 Z' fill='%23ccff33'/%3E%3Cpath d='M55,68 L55,95 A27,27 0 0 1 31.6,81.5 Z' fill='%2327b7e8'/%3E%3Cpath d='M55,68 L31.6,81.5 A27,27 0 0 1 31.6,54.5 Z' fill='%239d6bf2'/%3E%3Cpath d='M55,68 L31.6,54.5 A27,27 0 0 1 55,41 Z' fill='%233ce8a0'/%3E%3Ccircle cx='55' cy='68' r='27' fill='none' stroke='%23eaf2ff' stroke-width='3'/%3E%3Ccircle cx='55' cy='68' r='6' fill='%23eaf2ff'/%3E%3Cline x1='24' y1='26' x2='35' y2='39' stroke='%23f2a33c' stroke-width='5' stroke-linecap='round'/%3E%3Cellipse cx='16' cy='16' rx='11' ry='14' transform='rotate(-35 16 16)' fill='%2314224a' stroke='%23eaf2ff' stroke-width='3'/%3E%3Cline x1='31' y1='13' x2='40' y2='16' stroke='%23eaf2ff' stroke-width='2' stroke-linecap='round' opacity='0.7'/%3E%3Cline x1='31' y1='20' x2='40' y2='21' stroke='%23eaf2ff' stroke-width='2' stroke-linecap='round' opacity='0.7'/%3E%3Ccircle cx='54' cy='22' r='9' fill='%23ccff33' stroke='%2310210a' stroke-width='1.5'/%3E%3Cpath d='M46,19 Q54,26 62,19' fill='none' stroke='%2310210a' stroke-width='1.5'/%3E%3C/svg%3E"
     />
-    <script type="module" crossorigin src="./assets/index-C_XP_D5C.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-sSgTDIGM.css">
+    <script type="module" crossorigin src="./assets/index-CHLPO-du.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-DJJqgpLR.css">
   </head>
   <body>
     <div id="app"></div>
@@ -38,10 +38,7 @@
           <button id="btn-play" class="btn big primary">🎾 あそんでポイントを貯める</button>
           <button id="btn-manage" class="btn big">📊 ポイント・グループ管理</button>
           <button id="btn-friends" class="btn big">👥 フレンド</button>
-          <div class="btn-pair">
-            <button id="btn-tutorial" class="btn subtle">🔰 チュートリアル</button>
-            <button id="btn-help-home" class="btn subtle">？ あそびかた</button>
-          </div>
+          <button id="btn-tutorial" class="btn subtle">🔰 あそびかた（チュートリアル）</button>
           <p id="menu-toast" class="hint-line" style="color: #ff9f9f"></p>
         </div>
 
@@ -238,39 +235,6 @@
           <button id="btn-tut-next" class="btn big primary">つぎ →</button>
         </div>
         <button id="btn-tut-skip" class="btn subtle">スキップ</button>
-      </div>
-    </div>
-
-    <!-- ===== あそびかたヘルプ ===== -->
-    <div id="help" hidden>
-      <div class="help-card">
-        <h2 class="help-title">あそびかた</h2>
-        <div class="help-body">
-          <p class="help-sec">🎾 操作</p>
-          <ul>
-            <li>移動: 画面<b>左半分</b>のスティック（PC は WASD / 矢印）</li>
-            <li>打つ: 画面<b>右半分をフリック</b>（PC はマウス）。フリック中は<b>これから飛ぶ軌道</b>が表示される</li>
-            <li>速く長くフリックするほど強い。軌道が<b>赤ならアウト</b>コース</li>
-            <li>ゆっくり長くなぞると<b>ロブ</b>、タップでふんわり返球</li>
-            <li>サーブもフリック。向きと強さで<b>対角のサービスボックス</b>を狙う（外すとフォルト）</li>
-          </ul>
-          <p class="help-sec">💰 ポイント</p>
-          <ul>
-            <li>はじめて参加すると <b>+100pt</b> の参加ボーナス</li>
-            <li>試合に勝つと <b>+100pt</b>（1ポイント勝負は +30pt）。負けても取ったゲーム×20pt</li>
-            <li><b>対戦前ベット</b>: 両者の賭け額の低い方に揃えて、勝者が総取り</li>
-            <li><b>観戦予想</b>: 勝者を当てると同額ゲット、外すと没収</li>
-            <li>途中で抜けると<b>棄権負け</b>。ポイントもきっちり清算されます</li>
-            <li>増減はぜんぶ「グループ管理 → ポイント履歴」に記録されます</li>
-          </ul>
-          <p class="help-sec">🎰 ルーレット</p>
-          <ul>
-            <li>💥 罰ゲーム: ポイントが<b>多いほど当たりにくい</b></li>
-            <li>🎁 ご褒美: ポイントが<b>多いほど当たりやすい</b></li>
-            <li>つまり勝てば勝つほど安全でおいしい！ポイントを稼ごう</li>
-          </ul>
-        </div>
-        <button id="btn-help-close" class="btn big primary">とじる</button>
       </div>
     </div>
 
