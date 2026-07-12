@@ -106,6 +106,12 @@ class Sfx {
     this.noise(1.1, 1200, 0.4, 0.14, 'bandpass');
   }
 
+  /** 開封演出の鼓動 */
+  rlHeart(): void {
+    this.tone(64, 0.14, 0.3, 'sine');
+    this.tone(52, 0.16, 0.18, 'sine', 0.03);
+  }
+
   /** 罰ゲーム決定のドラマチックな重低音 */
   rlThud(): void {
     this.tone(110, 0.5, 0.28, 'sawtooth');

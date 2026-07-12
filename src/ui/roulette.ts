@@ -39,8 +39,11 @@ export class RouletteView {
   private readonly canvas = document.getElementById('roulette-canvas') as HTMLCanvasElement;
   private readonly title = document.getElementById('roulette-title') as HTMLElement;
   private readonly resultEl = document.getElementById('roulette-result') as HTMLElement;
+  private readonly pctEl = document.getElementById('roulette-pct') as HTMLElement;
   private readonly closeBtn = document.getElementById('roulette-close') as HTMLElement;
   private readonly flashEl = document.getElementById('roulette-flash') as HTMLElement;
+  private readonly auraEl = document.getElementById('rl-aura') as HTMLElement;
+  private readonly raysEl = document.getElementById('rl-rays') as HTMLElement;
   private raf = 0;
   private timers: number[] = [];
 
@@ -52,7 +55,10 @@ export class RouletteView {
     this.hide();
     this.root.hidden = false;
     this.resultEl.textContent = '';
-    this.resultEl.classList.remove('pop');
+    this.resultEl.className = '';
+    this.pctEl.textContent = '';
+    this.auraEl.className = '';
+    this.raysEl.className = '';
     this.closeBtn.hidden = true;
     this.title.textContent = kind === 'penalty' ? '罰ゲームルーレット' : 'ご褒美ルーレット';
     this.title.className = kind;
@@ -121,19 +127,39 @@ export class RouletteView {
       if (u >= 1 && !stopped) {
         stopped = true;
         shake = 1;
-        // タメてから結果発表
+        // オリパ風: 当選確率でレア度が決まる（低いほど豪華）
+        const pct = entries[winner]?.pct ?? 100;
+        const tier = pct < 10 ? 'tier-epic' : pct < 30 ? 'tier-rare' : 'tier-common';
+        const epic = tier === 'tier-epic';
+        // 停止 → オーラ点灯 + 鼓動でタメる（レアほど長く焦らす）
+        this.auraEl.className = `${tier} on`;
+        const beats = epic ? [60, 260, 430, 570, 690, 800] : [80, 330, 560];
+        for (const bt of beats) this.timers.push(window.setTimeout(() => sfx.rlHeart(), bt));
         this.timers.push(
-          window.setTimeout(() => {
-            const name = entries[winner]?.name ?? '?';
-            this.resultEl.textContent =
-              kind === 'penalty' ? `💥 ${name} さんが罰ゲーム！` : `🎉 ${name} さんにご褒美！`;
-            this.resultEl.classList.add('pop');
-            this.flashEl.className = `go ${kind}`;
-            if (kind === 'penalty') sfx.rlThud();
-            else sfx.rlFanfare();
-            this.spawnConfetti(particles, kind);
-            this.timers.push(window.setTimeout(() => (this.closeBtn.hidden = false), 900));
-          }, 450),
+          window.setTimeout(
+            () => {
+              const name = entries[winner]?.name ?? '?';
+              this.resultEl.textContent =
+                kind === 'penalty' ? `💥 ${name} さんが罰ゲーム！` : `🎉 ${name} さんにご褒美！`;
+              this.resultEl.className = epic ? `pop ${tier}` : 'pop';
+              this.pctEl.textContent = epic
+                ? `当選確率 ${pct.toFixed(1)}% — ✨奇跡の引き！！✨`
+                : `当選確率 ${pct.toFixed(1)}%`;
+              this.raysEl.className = `${tier} on`;
+              this.flashEl.className = epic ? `go epic ${kind}` : `go ${kind}`;
+              if (kind === 'penalty') sfx.rlThud();
+              else sfx.rlFanfare();
+              this.spawnConfetti(particles, kind);
+              if (epic) {
+                // 虹はファンファーレ重ねがけ + 紙吹雪の波状攻撃
+                this.timers.push(window.setTimeout(() => sfx.rlFanfare(), 350));
+                this.timers.push(window.setTimeout(() => this.spawnConfetti(particles, kind), 500));
+                this.timers.push(window.setTimeout(() => this.spawnConfetti(particles, kind), 1000));
+              }
+              this.timers.push(window.setTimeout(() => (this.closeBtn.hidden = false), 900));
+            },
+            epic ? 950 : 600,
+          ),
         );
       }
 
@@ -148,7 +174,7 @@ export class RouletteView {
       });
 
       // 紙吹雪が消えるまで描き続ける
-      if (!stopped || particles.length > 0 || now - start < SPIN_MS + 3000) {
+      if (!stopped || particles.length > 0 || now - start < SPIN_MS + 5500) {
         this.raf = requestAnimationFrame(tick);
       }
     };
@@ -321,7 +347,10 @@ export class RouletteView {
     cancelAnimationFrame(this.raf);
     for (const t of this.timers) window.clearTimeout(t);
     this.timers = [];
-    this.resultEl.classList.remove('pop');
+    this.resultEl.className = '';
+    this.pctEl.textContent = '';
+    this.auraEl.className = '';
+    this.raysEl.className = '';
     this.flashEl.className = '';
     this.root.hidden = true;
   }
