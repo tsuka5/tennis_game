@@ -584,6 +584,7 @@ const TUT_SLIDES: { title: string; body: string }[] = [
       '<li>試合に勝つと <b>+100pt</b>。負けても取ったゲーム×20pt</li>' +
       '<li><b>対戦前ベット</b>: 賭けて勝てば総取り</li>' +
       '<li><b>観戦予想</b>: 勝者を当てると同額ゲット</li>' +
+      '<li>試合を途中で抜けると<b>棄権負け</b>（賭け金も没収）</li>' +
       '<li>増減はぜんぶ履歴に記録。ロビーの「📜 ポイント履歴」で誰でも確認できる</li></ul>',
   },
   {
@@ -638,15 +639,8 @@ $('btn-tut-next').addEventListener('click', () => {
 // 初回起動時は自動で表示
 if (!localStorage.getItem(TUT_DONE_KEY)) openTutorial();
 
-// ===== あそびかたヘルプ =====
-for (const id of ['btn-help', 'btn-help-home']) {
-  $(id).addEventListener('click', () => {
-    $('help').hidden = false;
-  });
-}
-$('btn-help-close').addEventListener('click', () => {
-  $('help').hidden = true;
-});
+// ロビーの「？ あそびかた」もチュートリアルを開く（内容を一本化）
+$('btn-help').addEventListener('click', openTutorial);
 
 // ===== ゲーム中の操作（練習モード用。パーティー中はロビーの退出ボタンで抜ける） =====
 $('btn-quit').addEventListener('click', () => {
