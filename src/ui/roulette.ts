@@ -22,8 +22,10 @@ const T_SPIN = 2.6; // ボールがリムを高速周回
 const T_DESC = 1.7; // 内側へ螺旋降下
 const T_CLIMAX = 0.5; // 境界ぎわのカタカタ（この間だけ超スロー）
 const T_TOTAL = T_SPIN + T_DESC + T_CLIMAX;
-/** クライマックスの時間倍率（0.16 = 約6倍スロー） */
-const SLOWMO = 0.16;
+/** クライマックス開始時の時間倍率。終端に向けてさらに遅くなる */
+const SLOWMO_IN = 0.18;
+/** クライマックス終端の時間倍率（ボールが這うように転がる） */
+const SLOWMO_OUT = 0.07;
 
 export interface RouletteEntry {
   name: string;
@@ -168,7 +170,10 @@ export class RouletteView {
     const tick = (now: number): void => {
       const dtReal = Math.min(0.05, (now - lastNow) / 1000);
       lastNow = now;
-      const scale = tau > climaxStart && tau < T_TOTAL ? SLOWMO : 1;
+      // スローモーション: クライマックスに入ると減速し、終端ほどさらに遅く
+      const pPre = Math.min(1, Math.max(0, (tau - climaxStart) / T_CLIMAX));
+      const scale =
+        tau > climaxStart && tau < T_TOTAL ? SLOWMO_IN - (SLOWMO_IN - SLOWMO_OUT) * pPre : 1;
       tau = Math.min(T_TOTAL, tau + dtReal * scale);
       const u = tau / T_TOTAL;
 
@@ -187,7 +192,15 @@ export class RouletteView {
         p = (tau - climaxStart) / T_CLIMAX;
         local = landing + wobSign * wobAmp * Math.exp(-2.8 * p) * Math.cos(p * Math.PI * 2.5);
         rFrac = 0.79 + 0.045 * Math.exp(-2.5 * p) * Math.abs(Math.sin(p * Math.PI * 2.5));
-        zoomTarget = 2.7;
+      }
+      // ズーム: 降下の中盤から寄り始め、クライマックスで最大
+      if (!stopped) {
+        if (tau > climaxStart) {
+          zoomTarget = 3.0;
+        } else {
+          const zp = Math.min(1, Math.max(0, (tau - (T_SPIN + T_DESC * 0.35)) / (T_DESC * 0.65)));
+          zoomTarget = 1 + 1.4 * zp;
+        }
       }
       zoom += (zoomTarget - zoom) * Math.min(1, dtReal * 4.5);
 
