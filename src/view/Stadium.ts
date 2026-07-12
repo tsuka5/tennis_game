@@ -251,15 +251,6 @@ function buildAdBoards(scene: THREE.Scene): void {
 function buildLightTowers(scene: THREE.Scene): void {
   const poleMat = new THREE.MeshStandardMaterial({ color: 0x232c3f, roughness: 0.6, metalness: 0.5 });
   const lampMat = new THREE.MeshBasicMaterial({ color: 0xf3f7ff });
-  const beamMat = new THREE.MeshBasicMaterial({
-    color: 0xcfe0ff,
-    transparent: true,
-    opacity: 0.055,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-    side: THREE.DoubleSide,
-  });
-  const up = new THREE.Vector3(0, 1, 0);
   for (const [x, z] of [
     [-14, -19],
     [14, -19],
@@ -273,15 +264,6 @@ function buildLightTowers(scene: THREE.Scene): void {
     head.position.set(x, 13.2, z);
     head.lookAt(0, 0, 0);
     scene.add(head);
-
-    // ナイター照明の光芒（フェイクボリューメトリック）
-    const from = new THREE.Vector3(x, 13.0, z);
-    const to = new THREE.Vector3(x * 0.18, 0, z * 0.18);
-    const dir = to.clone().sub(from);
-    const beam = new THREE.Mesh(new THREE.ConeGeometry(4.6, dir.length(), 20, 1, true), beamMat);
-    beam.position.copy(from.clone().add(to).multiplyScalar(0.5));
-    beam.quaternion.setFromUnitVectors(up, dir.clone().normalize().negate());
-    scene.add(beam);
   }
 }
 
