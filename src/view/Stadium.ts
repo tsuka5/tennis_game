@@ -251,6 +251,15 @@ function buildAdBoards(scene: THREE.Scene): void {
 function buildLightTowers(scene: THREE.Scene): void {
   const poleMat = new THREE.MeshStandardMaterial({ color: 0x232c3f, roughness: 0.6, metalness: 0.5 });
   const lampMat = new THREE.MeshBasicMaterial({ color: 0xf3f7ff });
+  const beamMat = new THREE.MeshBasicMaterial({
+    color: 0xcfe0ff,
+    transparent: true,
+    opacity: 0.055,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+  const up = new THREE.Vector3(0, 1, 0);
   for (const [x, z] of [
     [-14, -19],
     [14, -19],
@@ -264,7 +273,43 @@ function buildLightTowers(scene: THREE.Scene): void {
     head.position.set(x, 13.2, z);
     head.lookAt(0, 0, 0);
     scene.add(head);
+
+    // ナイター照明の光芒（フェイクボリューメトリック）
+    const from = new THREE.Vector3(x, 13.0, z);
+    const to = new THREE.Vector3(x * 0.18, 0, z * 0.18);
+    const dir = to.clone().sub(from);
+    const beam = new THREE.Mesh(new THREE.ConeGeometry(4.6, dir.length(), 20, 1, true), beamMat);
+    beam.position.copy(from.clone().add(to).multiplyScalar(0.5));
+    beam.quaternion.setFromUnitVectors(up, dir.clone().normalize().negate());
+    scene.add(beam);
   }
+}
+
+function buildStars(scene: THREE.Scene): void {
+  const N = 260;
+  const pos = new Float32Array(N * 3);
+  for (let i = 0; i < N; i++) {
+    // 上半球ドームにランダム配置
+    const th = Math.random() * Math.PI * 2;
+    const ph = Math.random() * Math.PI * 0.42;
+    const r = 95;
+    pos[i * 3] = Math.sin(ph) * Math.cos(th) * r;
+    pos[i * 3 + 1] = Math.cos(ph) * r * 0.6 + 8;
+    pos[i * 3 + 2] = Math.sin(ph) * Math.sin(th) * r;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  const stars = new THREE.Points(
+    geo,
+    new THREE.PointsMaterial({
+      color: 0xbfd4ff,
+      size: 0.45,
+      transparent: true,
+      opacity: 0.85,
+      sizeAttenuation: true,
+    }),
+  );
+  scene.add(stars);
 }
 
 function buildSky(scene: THREE.Scene): void {
@@ -294,6 +339,7 @@ export function buildStadium(): THREE.Scene {
   buildStands(scene);
   buildAdBoards(scene);
   buildLightTowers(scene);
+  buildStars(scene);
 
   // 照明: ナイトセッションのフラッドライト
   const hemi = new THREE.HemisphereLight(0x93b2e8, 0x0a0f1e, 0.55);

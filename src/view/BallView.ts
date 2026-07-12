@@ -6,6 +6,22 @@ import * as THREE from 'three';
 import { BALL } from '../config';
 
 const TRAIL_LEN = 22;
+/** 残像スプライトの数 */
+const GHOST_LEN = 16;
+
+function glowTexture(): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = 64;
+  c.height = 64;
+  const ctx = c.getContext('2d') as CanvasRenderingContext2D;
+  const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+  g.addColorStop(0, 'rgba(255,255,255,1)');
+  g.addColorStop(0.4, 'rgba(255,255,255,0.55)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 64, 64);
+  return new THREE.CanvasTexture(c);
+}
 
 export class BallView {
   private readonly mesh: THREE.Mesh;
@@ -16,8 +32,45 @@ export class BallView {
   private readonly rings: { mesh: THREE.Mesh; life: number }[] = [];
   private readonly scene: THREE.Scene;
 
+  // スピード演出
+  private readonly glow: THREE.Sprite;
+  private readonly ghosts: THREE.Sprite[] = [];
+  private ghostHead = 0;
+  private prev = { x: 0, y: 0, z: 0 };
+  private squash = 0;
+
   constructor(scene: THREE.Scene) {
     this.scene = scene;
+    const gtex = glowTexture();
+    // ボール本体のグロー（速いほど大きく明るく）
+    this.glow = new THREE.Sprite(
+      new THREE.SpriteMaterial({
+        map: gtex,
+        color: 0xd8f24a,
+        transparent: true,
+        opacity: 0.4,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      }),
+    );
+    this.glow.scale.setScalar(0.5);
+    scene.add(this.glow);
+    // 残像（リングバッファで使い回し）
+    for (let i = 0; i < GHOST_LEN; i++) {
+      const s = new THREE.Sprite(
+        new THREE.SpriteMaterial({
+          map: gtex,
+          color: 0xffe86b,
+          transparent: true,
+          opacity: 0,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+        }),
+      );
+      s.scale.setScalar(0.24);
+      scene.add(s);
+      this.ghosts.push(s);
+    }
     this.mesh = new THREE.Mesh(
       new THREE.SphereGeometry(BALL.VISUAL_R, 18, 14),
       new THREE.MeshStandardMaterial({
@@ -51,6 +104,39 @@ export class BallView {
 
   update(dt: number, x: number, y: number, z: number, flying: boolean): void {
     this.mesh.position.set(x, Math.max(y, BALL.VISUAL_R), z);
+
+    // 速度（見た目の演出用）
+    const speed = dt > 0 ? Math.hypot(x - this.prev.x, y - this.prev.y, z - this.prev.z) / dt : 0;
+    this.prev = { x, y, z };
+
+    // バウンド直後のスカッシュ（潰れて戻る）
+    this.squash = Math.max(0, this.squash - dt * 7);
+    const sq = this.squash;
+    this.mesh.scale.set(1 + 0.35 * sq, 1 - 0.5 * sq, 1 + 0.35 * sq);
+
+    // グロー: 速いほど大きく・白熱色に
+    const heat = Math.min(1, Math.max(0, (speed - 8) / 22));
+    this.glow.position.copy(this.mesh.position);
+    this.glow.scale.setScalar(0.4 + heat * 0.9);
+    const gm = this.glow.material;
+    gm.opacity = flying ? 0.3 + heat * 0.5 : 0.18;
+    gm.color.setHSL(0.16 - heat * 0.12, 1, 0.6 + heat * 0.15);
+
+    // 残像: 飛行中かつ一定速度以上のとき毎フレーム1つ置いていく
+    if (flying && speed > 6) {
+      const g = this.ghosts[this.ghostHead];
+      this.ghostHead = (this.ghostHead + 1) % GHOST_LEN;
+      g.position.set(x, Math.max(y, BALL.VISUAL_R), z);
+      g.material.opacity = 0.28 + heat * 0.3;
+      g.scale.setScalar(0.18 + heat * 0.22);
+      g.material.color.setHSL(0.14 - heat * 0.1, 1, 0.6);
+    }
+    for (const g of this.ghosts) {
+      if (g.material.opacity > 0) {
+        g.material.opacity = Math.max(0, g.material.opacity - dt * 1.8);
+        g.scale.multiplyScalar(Math.max(0, 1 - dt * 1.2));
+      }
+    }
 
     // ブロブシャドウ（高いほど薄く小さく）
     this.blob.position.x = x;
@@ -100,6 +186,7 @@ export class BallView {
   }
 
   bounceAt(x: number, z: number): void {
+    this.squash = 1;
     const ring = new THREE.Mesh(
       new THREE.RingGeometry(0.16, 0.24, 24),
       new THREE.MeshBasicMaterial({ color: 0xdff26a, transparent: true, opacity: 0.5, side: THREE.DoubleSide }),

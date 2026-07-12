@@ -23,6 +23,7 @@ import { Hud } from '../ui/hud';
 import { BallView } from '../view/BallView';
 import { KIT_AWAY, KIT_HOME, PlayerView } from '../view/PlayerView';
 import { ArrowView } from '../view/ArrowView';
+import { FxView } from '../view/FxView';
 import { ServeAimView } from '../view/ServeAimView';
 import { TrajectoryView } from '../view/TrajectoryView';
 import { buildStadium } from '../view/Stadium';
@@ -70,6 +71,10 @@ export class Game {
   private readonly trajectoryView: TrajectoryView;
   /** フリック中の「飛ばす方向 →」矢印 */
   private readonly arrowView: ArrowView;
+  /** スパーク・紙吹雪などのパーティクル演出 */
+  private readonly fxView: FxView;
+  /** 画面シェイクの残量 */
+  private shake = 0;
   private landTarget: { x: number; z: number } | null = null;
   private landVKey = '';
   private landTimer = 0;
@@ -138,6 +143,7 @@ export class Game {
     this.returnAimView = new ServeAimView(this.scene, { color: 0xccff33, scale: 0.6, opacity: 0.7 });
     this.trajectoryView = new TrajectoryView(this.scene);
     this.arrowView = new ArrowView(this.scene);
+    this.fxView = new FxView(this.scene);
 
     // カメラ: 対戦者は自陣後方の TV 視点、観戦者はサイドスタンド視点
     this.camera = new THREE.PerspectiveCamera(52, window.innerWidth / window.innerHeight, 0.1, 260);
@@ -262,8 +268,13 @@ export class Game {
     else this.frameClient(dt);
 
     this.updateRallyMarkers(dt);
+    this.fxView.update(dt);
     this.frameCamera(dt);
     this.renderer.render(this.scene, this.camera);
+  }
+
+  private addShake(v: number): void {
+    this.shake = Math.min(0.8, this.shake + v);
   }
 
   /** ラリー中の着地予測マーカーと、自分の返球プレビューの更新 */
@@ -411,6 +422,7 @@ export class Game {
       if (ev.bounce) {
         sfx.bounce();
         this.ballView.bounceAt(ev.bounce.x, ev.bounce.z);
+        this.fxView.dust({ x: ev.bounce.x, y: 0, z: ev.bounce.z });
       }
     }
 
@@ -460,15 +472,34 @@ export class Game {
       if (msg[1]) this.hud.flash(msg[1]);
     }
 
-    // 効果音（カウンタ差分。スマッシュのときは打球音を強い方に差し替え）
-    if (fx.smash > this.lastFx.smash) sfx.smash();
-    else if (fx.hit > this.lastFx.hit) sfx.hit();
-    if (fx.net > this.lastFx.net) sfx.net();
-    if (fx.point > this.lastFx.point) sfx.point();
-    if (fx.fault > this.lastFx.fault) sfx.fault();
+    // 効果音 + 演出（カウンタ差分。スマッシュのときは打球音を強い方に差し替え）
+    const bp = this.sim ? this.sim.ball.p : this.localBall.p;
+    if (fx.smash > this.lastFx.smash) {
+      sfx.smash();
+      this.fxView.burst(bp, 0xffb340, 26, 10, 0.5);
+      this.addShake(0.5);
+    } else if (fx.hit > this.lastFx.hit) {
+      sfx.hit();
+      this.fxView.burst(bp, 0xffffff, 9, 5, 0.28);
+    }
+    if (fx.net > this.lastFx.net) {
+      sfx.net();
+      this.fxView.burst(bp, 0x9fb2cc, 8, 3, 0.25);
+      this.addShake(0.15);
+    }
+    if (fx.point > this.lastFx.point) {
+      sfx.point();
+      this.fxView.confetti({ x: 0, y: 4, z: 0 }, 70);
+      this.addShake(0.2);
+    }
+    if (fx.fault > this.lastFx.fault) {
+      sfx.fault();
+      this.fxView.burst(bp, 0xff6b6b, 8, 3, 0.3);
+    }
     if (playBounce && fx.bounce > this.lastFx.bounce) {
       sfx.bounce();
       this.ballView.bounceAt(ballX, ballZ);
+      this.fxView.dust({ x: ballX, y: 0, z: ballZ });
     }
     this.lastFx = { ...fx };
 
@@ -516,12 +547,23 @@ export class Game {
   }
 
   private frameCamera(dt: number): void {
-    if (this.playerIdx === null) return; // 観戦カメラは固定
-    const k = Math.min(1, dt * 3.5);
-    const targetX = this.meX * 0.3;
-    this.camPos.x += (targetX - this.camPos.x) * k;
-    this.camera.position.copy(this.camPos);
-    this.camera.lookAt(this.camPos.x * 0.4, 0, -this.s * 1.0);
+    if (this.playerIdx !== null) {
+      const k = Math.min(1, dt * 3.5);
+      const targetX = this.meX * 0.3;
+      this.camPos.x += (targetX - this.camPos.x) * k;
+      this.camera.position.copy(this.camPos);
+      this.camera.lookAt(this.camPos.x * 0.4, 0, -this.s * 1.0);
+    } else {
+      this.camera.position.copy(this.camPos);
+      this.camera.lookAt(2.5, 0, 0);
+    }
+    // スマッシュ/ポイントの画面シェイク
+    if (this.shake > 0) {
+      this.shake = Math.max(0, this.shake - dt * 1.7);
+      const s = this.shake * 0.16;
+      this.camera.position.x += (Math.random() * 2 - 1) * s;
+      this.camera.position.y += (Math.random() * 2 - 1) * s;
+    }
   }
 
   // ============ 外部操作 ============
